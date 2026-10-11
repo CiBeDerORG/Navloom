@@ -97,6 +97,7 @@ jobs:
           if [ -n "$unformatted" ]; then
             echo "Go files need formatting:"
             echo "$unformatted"
+            gofmt -d .
             exit 1
           fi
       - name: Go tests
