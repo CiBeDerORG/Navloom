@@ -95,3 +95,5 @@ npm run test:go
 - 新增 SQLite 迁移 `0004_m2_reverse_endpoint.sql`：每台 Agent 的私网 IP、端口、公开 TLS 证书与 SHA-256 指纹；不存 Agent TLS 私钥。现有设备字段为空，后续必须重新配对/安全迁移才能进入反向 WSS。
 - 一次性配对请求可携带经 IP 私网/EasyTier 限制、X.509 有效期和 IP SAN 校验的端点；拒绝公网、域名、回环、错误证书，且不消费无效令牌。Go 配对 CLI 已准备读取配置的 TLS 证书并检查私钥文件权限。
 - **这只是 T-036 的基础数据与输入验证**：Agent TLS 证书生成、Server 客户端证书信任、反向 WSS 监听与主动连接尚未实现；旧通信代码仍在，不能宣称零通信目标已经生效。旧配对请求暂时兼容但不具备反向连接端点。
+
+- **T-036 基础代码 CI 证据**：[GitHub Actions 38150454809](https://github.com/CiBeDerORG/Navloom/actions/runs/38150454809) 四项作业通过（Web/Server/SQLite、Go Agent、双 Go↔Node WSS 旧架构回归、Compose 启动）。**只验证目前的增量代码和历史回归，不等于反向 WSS 已实现或 Codex 独立验收通过。**

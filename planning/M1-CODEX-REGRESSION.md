@@ -384,3 +384,5 @@ npm run db:migrate
 - 真实两台隔离 Go Agent 与 Node Server 的消息信封、task_id、能力探测、非法命令/参数、撤销、连接关闭后 unknown、迟到/重复结果幂等；无 Shell。测试真实 Docker 前必须先获授权，允许 fake Unix Socket/CLI 做自动化子测试。
 - 管理页面重新进入后先全量容器扫描，再启用事件增量；无页面期间不得推送 Docker Events/快照；历史数据和 AppInstance/NavigationCard 严格分离；容器操作与日志均需管理员权限。
 - Codex 逐项写实际 PASS/FAIL/NOT_RUN 和证据；不得把旧 D1～D8 的通过结果迁移到本节。M2 通过门槛仍为 T-034～T-059 全部按当前需求通过。
+
+**T-036 增量代码自动化记录（非 Codex PASS）**：[CI 38150454809](https://github.com/CiBeDerORG/Navloom/actions/runs/38150454809) 4/4 通过；包含私网端点输入拒绝、证书格式校验、Go 配对配置错误路径、数据库迁移；尚无反向 WSS/双向 TLS 联调。E 组状态全部保持 `NOT_RUN`。
