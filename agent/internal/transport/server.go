@@ -1,0 +1,197 @@
+package transport
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/CiBeDerORG/Navloom/agent/internal/config"
+	"github.com/CiBeDerORG/Navloom/agent/internal/pairing"
+	"github.com/CiBeDerORG/Navloom/agent/internal/probe"
+	"github.com/CiBeDerORG/Navloom/agent/internal/protocol"
+	"github.com/gorilla/websocket"
+)
+
+// RunPassive never initiates a connection to Server. A trusted Server must
+// establish an mTLS WSS connection while at least one logged-in page is open.
+func RunPassive(ctx context.Context, cfg config.Config, identity pairing.Identity, version string, log *slog.Logger) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	if !cfg.ReverseEndpointConfigured() || identity.AgentID == "" || version == "" {
+		return errors.New("passive Agent requires a configured private endpoint and paired identity")
+	}
+	tlsConfig, err := passiveTLSConfig(cfg, identity)
+	if err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.EndpointHost, strconv.Itoa(cfg.EndpointPort)))
+	if err != nil {
+		return fmt.Errorf("listen on private Agent endpoint: %w", err)
+	}
+	defer listener.Close()
+	server := &http.Server{
+		Handler:           passiveHandler(ctx, identity, version, log),
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	finished := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = server.Close()
+		case <-finished:
+		}
+	}()
+	log.Info("Agent passive WSS listener ready", "host", cfg.EndpointHost, "port", cfg.EndpointPort)
+	err = server.Serve(tls.NewListener(listener, tlsConfig))
+	close(finished)
+	if ctx.Err() != nil || errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+func passiveTLSConfig(cfg config.Config, identity pairing.Identity) (*tls.Config, error) {
+	if identity.ServerClientCertificatePEM == "" {
+		return nil, errors.New("Agent is not paired with a Server client TLS certificate; re-pair required")
+	}
+	info, err := os.Stat(cfg.TLSKeyFile)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("Agent TLS private key must be a regular private file (0600)")
+	}
+	own, err := tls.LoadX509KeyPair(cfg.TLSCertFile, cfg.TLSKeyFile)
+	if err != nil {
+		return nil, errors.New("Agent TLS certificate/key invalid")
+	}
+	ownLeaf, err := x509.ParseCertificate(own.Certificate[0])
+	if err != nil || ownLeaf.IsCA || time.Now().Before(ownLeaf.NotBefore) || !time.Now().Before(ownLeaf.NotAfter) ||
+		ownLeaf.VerifyHostname(cfg.EndpointHost) != nil {
+		return nil, errors.New("Agent TLS certificate is expired or does not match endpoint IP")
+	}
+	block, rest := pem.Decode([]byte(identity.ServerClientCertificatePEM))
+	if block == nil || block.Type != "CERTIFICATE" || len(bytes.TrimSpace(rest)) != 0 {
+		return nil, errors.New("invalid pinned Server client TLS certificate")
+	}
+	pinned, err := x509.ParseCertificate(block.Bytes)
+	if err != nil || pinned.IsCA || time.Now().Before(pinned.NotBefore) || !time.Now().Before(pinned.NotAfter) {
+		return nil, errors.New("invalid or expired Server client TLS certificate")
+	}
+	clientAuth := false
+	for _, usage := range pinned.ExtKeyUsage {
+		if usage == x509.ExtKeyUsageClientAuth {
+			clientAuth = true
+		}
+	}
+	if !clientAuth {
+		return nil, errors.New("pinned Server certificate must be valid for client authentication")
+	}
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{own},
+		ClientAuth:   tls.RequireAnyClientCert,
+		VerifyConnection: func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) != 1 || !bytes.Equal(state.PeerCertificates[0].Raw, pinned.Raw) {
+				return errors.New("untrusted Server client TLS certificate")
+			}
+			now := time.Now()
+			if now.Before(pinned.NotBefore) || !now.Before(pinned.NotAfter) {
+				return errors.New("Server client TLS certificate expired")
+			}
+			return nil
+		},
+	}, nil
+}
+
+func passiveHandler(ctx context.Context, identity pairing.Identity, version string, log *slog.Logger) http.Handler {
+	var mu sync.Mutex
+	active := false
+	upgrader := websocket.Upgrader{
+		HandshakeTimeout:  8 * time.Second,
+		EnableCompression: false,
+		CheckOrigin: func(r *http.Request) bool {
+			return r.Header.Get("Origin") == "" // Server-to-Agent only, never a browser WebSocket.
+		},
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/agent" || r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		if r.TLS == nil || len(r.TLS.PeerCertificates) != 1 || identity.ServerClientCertificatePEM == "" {
+			http.Error(w, "mTLS client identity required", http.StatusUnauthorized)
+			return
+		}
+		block, _ := pem.Decode([]byte(identity.ServerClientCertificatePEM))
+		if block == nil || !bytes.Equal(r.TLS.PeerCertificates[0].Raw, block.Bytes) {
+			http.Error(w, "untrusted client", http.StatusUnauthorized)
+			return
+		}
+		if r.Header.Get("X-Navloom-Agent-Id") != identity.AgentID ||
+			r.Header.Get("X-Navloom-Protocol-Version") != strconv.Itoa(protocol.Version) {
+			http.Error(w, "Agent identity/protocol mismatch", http.StatusUnauthorized)
+			return
+		}
+		mu.Lock()
+		if active {
+			mu.Unlock()
+			http.Error(w, "Agent already connected", http.StatusConflict)
+			return
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			mu.Unlock()
+			return
+		}
+		active = true
+		mu.Unlock()
+		defer func() {
+			conn.Close()
+			mu.Lock()
+			active = false
+			mu.Unlock()
+		}()
+		conn.SetReadLimit(maxMessageBytes)
+		cancelClose := context.AfterFunc(ctx, func() {
+			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseGoingAway, "Agent stopping"), time.Now().Add(time.Second))
+			_ = conn.Close()
+		})
+		defer cancelClose()
+		hello, err := protocol.NewHello(identity.AgentID, version)
+		if err != nil || writeMessage(conn, hello) != nil {
+			return
+		}
+		log.Info("Server connected to passive Agent", "agent_id", identity.AgentID)
+		for {
+			kind, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if kind != websocket.TextMessage {
+				_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseUnsupportedData, "text required"), time.Now().Add(time.Second))
+				return
+			}
+			task, err := protocol.DecodeTaskDispatch(data, identity.AgentID)
+			if err != nil {
+				_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "task rejected"), time.Now().Add(time.Second))
+				return
+			}
+			capabilities := probe.DiscoverDocker(ctx)
+			result, err := protocol.NewCapabilityResult(identity.AgentID, task.TaskID, capabilities)
+			if err != nil || writeMessage(conn, result) != nil {
+				return
+			}
+		}
+	})
+}

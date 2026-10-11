@@ -107,3 +107,8 @@ npm run test:go
 - Agent 新增 `-init-tls`，为配置的私网 IP SAN 生成 Ed25519 自签名服务器证书与 0600 私钥，已有文件不可覆盖。配对前验证证书与私钥匹配、证书用途/有效期/IP SAN。
 - Server 新增可选 `AGENT_CLIENT_CERT_FILE`/`AGENT_CLIENT_KEY_FILE`：校验客户端证书用途、私钥权限、密钥配对；当 Agent 注册反向 WSS 端点时必须配置这对凭据，配对响应只返回 Server 客户端**公开证书**，绝不返回私钥。Agent 将其保存为身份文件中的固定信任证书。
 - **阶段限制**：T-036 仍待完成真实双向 TLS 联调；Agent 被动 WSS 监听、Server 主动连接与全局页面在线调度尚未完成，旧 Agent 主动连接路径暂存，不能声称新通信架构已生效。
+
+## T-038 第一批代码：被动 Agent WSS 监听（尚未验收）
+
+- 当配置 `endpoint_host`/`endpoint_port` 时，Go Agent 改为在可信私网/EasyTier IP 上监听 TLS 1.3 WSS `/agent`，**不主动连接、心跳或重连**。仅接受配对时固定信任的 Server 客户端证书（精确 DER 匹配），检查 Agent ID 和协议版本；不接受浏览器 Origin；每台 Agent 最多一个已认证 WSS；收到任务时只执行现有只读能力探测；Server Ping 由 WebSocket 协议自动回复 Pong。
+- 未配置反向端点的旧 Agent 暂时走旧连接路径，待 T-037/T-040 完整迁移后删除；因此**项目整体尚未达到零通信目标**。Server 主动 WSS 客户端和全局已登录页面调度仍待开发。

@@ -47,14 +47,14 @@ func GenerateAgentTLS(cfg config.Config) error {
 	}
 	now := time.Now()
 	template := &x509.Certificate{
-		SerialNumber: serial,
-		Subject: pkix.Name{CommonName: "Navloom Agent"},
-		NotBefore: now.Add(-5 * time.Minute),
-		NotAfter: now.Add(365 * 24 * time.Hour),
-		KeyUsage: x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "Navloom Agent"},
+		NotBefore:             now.Add(-5 * time.Minute),
+		NotAfter:              now.Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		IPAddresses: []net.IP{ip},
+		IPAddresses:           []net.IP{ip},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, privateKey.Public(), privateKey)
 	if err != nil {
@@ -77,7 +77,9 @@ func GenerateAgentTLS(cfg config.Config) error {
 	keyWritten := false
 	defer func() {
 		keyFile.Close()
-		if !keyWritten { os.Remove(cfg.TLSKeyFile) }
+		if !keyWritten {
+			os.Remove(cfg.TLSKeyFile)
+		}
 	}()
 	if _, err := keyFile.Write(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDer})); err != nil {
 		return err
@@ -92,7 +94,9 @@ func GenerateAgentTLS(cfg config.Config) error {
 	certWritten := false
 	defer func() {
 		certFile.Close()
-		if !certWritten { os.Remove(cfg.TLSCertFile) }
+		if !certWritten {
+			os.Remove(cfg.TLSCertFile)
+		}
 	}()
 	if _, err := certFile.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})); err != nil {
 		return err

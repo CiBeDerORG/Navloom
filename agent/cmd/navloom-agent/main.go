@@ -109,8 +109,15 @@ func run(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := transport.Run(ctx, cfg, identity, version, log); err != nil {
-		log.Error("Agent transport stopped", "error", err)
+	var transportError error
+	if cfg.ReverseEndpointConfigured() {
+		transportError = transport.RunPassive(ctx, cfg, identity, version, log)
+	} else {
+		// Temporary legacy fallback while T-037/T-040 replace Server's inbound WSS.
+		transportError = transport.Run(ctx, cfg, identity, version, log)
+	}
+	if transportError != nil {
+		log.Error("Agent transport stopped", "error", transportError)
 		return 1
 	}
 	log.Info("Agent stopped")
