@@ -95,7 +95,6 @@ async function stop(child) {
 try {
   const host = privateIP();
   const serverPort = await unusedPort("127.0.0.1");
-  const agentPort = await unusedPort(host);
   base = "http://127.0.0.1:" + serverPort;
   const clientCert = join(temp, "server-client.pem");
   const clientKey = join(temp, "server-client.key");
