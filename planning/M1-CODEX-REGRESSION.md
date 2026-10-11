@@ -2,7 +2,7 @@
 
 > **用途**：**继续使用之前交给 Codex 的这一个文件**集中安排 M1 浏览器回归和 M2 Agent 接入验收；Codex 在此追加结果、复现步骤与修复证据，不另开一份验收清单。任务状态的权威来源仍是 [认证任务](./tasks/02-access-auth.md)、[导航任务](./tasks/03-navigation.md)、[Agent 任务](./tasks/04-agent.md) 和 [容器池任务](./tasks/05-inventory.md)。
 >
-> **基线（2026-10-11，提交 `63e7edc`）**：M1 共 25 项，11 项已勾选验收，**14 项未完成**（9 项 UI/交互待回归，5 项依赖 M2）；M2 共 26 项，**T-035 已通过自动化验收（1/26）**，T-034/T-036/T-041～T-043 已有部分实现但未完整验收，其他 20 项尚未实现。代码存在 ≠ 测试通过；CI 通过 ≠ 浏览器/真实 Agent 联调通过。
+> **基线（2026-10-11，提交 `63e7edc`）**：M1 共 25 项，11 项已勾选验收，**14 项未完成**（9 项 UI/交互待回归，5 项依赖 M2）；M2 共 26 项，**T-035 已通过自动化验收（1/26）**，T-034/T-036/T-041～T-043 已有部分实现且接入 WSS，T-037～T-040 代码已提交并通过自动化 CI，**以上均待 Codex 独立验收**；T-044～T-059 的 16 项尚未实现。代码存在 ≠ 测试通过；CI 通过 ≠ 浏览器/真实 Agent 联调通过。
 
 ## 给 Codex 的执行指令
 
@@ -132,6 +132,13 @@ npm run dev
 
 > **当前实现基线**：Agent 配对数据库迁移 `0002_m2_agent_pairing.sql`、Server `agent-pairing.ts`、Go `internal/pairing` 与 `-pair` CLI、`/admin/instances` 的设备管理 UI。CI [38142316871](https://github.com/CiBeDerORG/Navloom/actions/runs/38142316871) 的 **Web + Server + SQLite / Go Agent / Local Docker Compose startup 三项成功**，只作为自动化证据；Codex 独立复核尚未执行。相关提交：`75e98ef`、`6df5d2a`、`6bf0f83`、`a8aeedc`、`63e7edc`。
 
+### M2 WSS 自动化证据与 Codex 复核范围
+
+- [CI 38144150805](https://github.com/CiBeDerORG/Navloom/actions/runs/38144150805) **4/4 作业成功**：Web + Server + SQLite、Go Agent、Local Docker Compose startup、**M2 Go-to-Node WSS integration**。
+- `server/src/m2-transport.test.ts` 覆盖握手拒绝、双设备身份隔离、心跳、版本校验、超大帧、替换连接、超时与撤销；`agent/internal/transport/client_test.go` 覆盖 TLS、退避重连、心跳与关闭。
+- `scripts/smoke-m2.mjs` 在临时 SQLite + 回环 Server 上启动**两台真实 Go Agent 进程**，验证在线、停止/重启、同一 ID 恢复、撤销一台不影响另一台。该脚本使用临时测试凭据，运行后删除本地数据，不接触 NAS/Docker。
+- Codex 可在具备 Node.js 22、Go 1.24+ 的隔离环境复跑：先 `npm ci && npm run build:contracts && npm run build:server`，再 `node scripts/smoke-m2.mjs`。记录退出码、提交 SHA 和日志路径；**CI 成功不能自动填 Codex `PASS`**。
+- 仍需人工/浏览器检查：管理员界面实时状态、错误文案、不同视口、实际 TLS 代理与断网环境；T-039 的任务相关性依赖 T-044，T-042 的容器筛选依赖 T-053。
 ### C 组执行环境与纪律
 
 - **只使用本地隔离 Server、独立 SQLite、回环测试 HTTP 及测试用 Agent 身份**。除非用户另行授权，不连接真实 NAS、Docker Socket 或公网 Server；不得把设备凭据、一次性令牌、Cookie、数据库原文件或日志中的秘密提交 Git。
@@ -150,7 +157,7 @@ npm run db:migrate
 ```
 
 - 在本地开发 Server 创建测试管理员（使用 README 的 `admin:init` 安全交互流程），准备「未登录」「只有首页 Cookie」「管理员 Cookie」三组请求上下文；如需测试 Go CLI 配对，使用回环测试 Server/本地 TLS 测试服务及临时 `token_file`，不得用生产设备凭据。
-- **WSS 已提交代码、Codex 独立验收尚未执行**：配对后还需正常启动 Agent 才能在线；在线不代表 Docker 可用。测试只用隔离 Server/临时身份。
+- **WSS 已提交并通过自动化 CI、Codex 独立验收尚未执行**：配对后还需正常启动 Agent 才能在线；在线不代表 Docker 可用。测试只用隔离 Server/临时身份。
 
 ### C1 · T-034｜Agent 身份与设备持久化模型 · WSS 已提交，完整验收 NOT_RUN
 
@@ -269,10 +276,10 @@ npm run db:migrate
 | T-034 | NOT_RUN | 身份模型可先做 SQLite 子测试 | — |
 | T-035 | NOT_RUN | 已自动化验收；待 Codex 独立复核 | — |
 | T-036 | NOT_RUN | Go 配对与私有文件可先做子测试 | — |
-| T-037 | NOT_RUN | 等待 Server WSS | — |
-| T-038 | NOT_RUN | 等待 Go WSS | — |
-| T-039 | NOT_RUN | 等待协议双端集成 | — |
-| T-040 | NOT_RUN | 等待心跳 | — |
+| T-037 | NOT_RUN | WSS 代码已提交，待 Codex 双端回归 | — |
+| T-038 | NOT_RUN | WSS 代码已提交，待 Codex 双端回归 | — |
+| T-039 | NOT_RUN | WSS 代码已提交，待 Codex 双端回归 | — |
+| T-040 | NOT_RUN | WSS 代码已提交，待 Codex 双端回归 | — |
 | T-041 | NOT_RUN | 管理员 API 可先做子测试 | — |
 | T-042 | BLOCKED_INVENTORY | 设备 UI 可先做浏览器子测试 | — |
 | T-043 | NOT_RUN | 撤销持久化可先做子测试 | — |
