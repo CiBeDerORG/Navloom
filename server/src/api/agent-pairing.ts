@@ -72,7 +72,7 @@ export function verifyAgentCredential(db: DatabaseConnection, agentId: string, c
   return timingSafeEqual(Buffer.from(row.hash, "hex"), Buffer.from(tokenDigest(credential), "hex"));
 }
 
-export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnection, access: Access, hub: AgentHub): void {
+export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnection, access: Access, hub: AgentHub, serverClientCertificatePem?: string): void {
   const pairLimiter = new AttemptLimiter(8);
   app.post("/api/v1/admin/agents/pair-tokens", async (request, reply) => {
     const admin = access.requireAdmin(request);
@@ -108,6 +108,9 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     const credential = newSecret();
     try {
       const endpoint = validateEndpoint(input.data.endpoint);
+      if (endpoint && !serverClientCertificatePem) {
+        throw new ApiFailure(503, "PAIRING_NOT_READY", "Server 尚未配置 Agent 客户端 TLS 身份");
+      }
       db.sqlite.transaction(() => {
         const token = db.sqlite.prepare(
           "SELECT id FROM agent_pair_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
@@ -133,7 +136,7 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     pairLimiter.success(key);
     reply.status(201);
     reply.header("Cache-Control", "no-store");
-    return { agentId, credential };
+    return { agentId, credential, ...(input.data.endpoint ? { serverClientCertificatePem } : {}) };
   });
 
   app.get("/api/v1/admin/agent-tasks/:id", async (request) => {

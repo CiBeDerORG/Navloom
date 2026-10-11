@@ -29,11 +29,12 @@ func run(args []string) int {
 	showVersion := flags.Bool("version", false, "print Agent version")
 	check := flags.Bool("check", false, "check TCP/TLS reachability and exit (not WSS handshake)")
 	pair := flags.Bool("pair", false, "pair using a one-time token read from stdin and save the Agent identity")
+	initTLS := flags.Bool("init-tls", false, "generate a private Agent TLS certificate and key for the configured IP")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	if *pair && *check {
-		fmt.Fprintln(os.Stderr, "-pair and -check cannot be combined")
+	if (*pair && *check) || (*initTLS && (*pair || *check)) {
+		fmt.Fprintln(os.Stderr, "-init-tls, -pair and -check cannot be combined")
 		return 2
 	}
 	if *showVersion {
@@ -48,6 +49,14 @@ func run(args []string) int {
 		return 2
 	}
 
+	if *initTLS {
+		if err := pairing.GenerateAgentTLS(cfg); err != nil {
+			log.Error("cannot initialize Agent TLS identity", "error", err)
+			return 1
+		}
+		log.Info("Agent TLS certificate and private key generated")
+		return 0
+	}
 	if *check {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()
@@ -85,7 +94,7 @@ func run(args []string) int {
 			log.Error("Agent paired but identity could not be saved; issue a new token after fixing storage", "error", err)
 			return 1
 		}
-		log.Info("Agent paired; normal startup connects with the saved identity", "agent_id", identity.AgentID)
+		log.Info("Agent paired; identity saved", "agent_id", identity.AgentID)
 		return 0
 	}
 

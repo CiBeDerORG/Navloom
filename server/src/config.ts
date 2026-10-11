@@ -5,6 +5,8 @@ const configSchema = z.object({
   HOST: z.string().min(1).default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().min(1).default("./data/navloom.db"),
+  AGENT_CLIENT_CERT_FILE: z.string().default(""),
+  AGENT_CLIENT_KEY_FILE: z.string().default(""),
 });
 
 export type ServerConfig = z.infer<typeof configSchema>;

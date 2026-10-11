@@ -1,12 +1,15 @@
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { openDatabase } from "./db/client.js";
+import { loadAgentClientIdentity } from "./realtime/agent-client-identity.js";
 
 const config = loadConfig();
 const database = openDatabase(config.DATABASE_URL);
+const agentClientIdentity = loadAgentClientIdentity(config.AGENT_CLIENT_CERT_FILE, config.AGENT_CLIENT_KEY_FILE);
 const app = buildApp({ logger: { level: "info" } }, {
   database,
   secureCookies: config.NODE_ENV === "production",
+  agentClientIdentity,
 });
 
 let shuttingDown = false;

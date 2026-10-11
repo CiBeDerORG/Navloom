@@ -4,10 +4,11 @@ import type { DatabaseConnection } from "./db/client.js";
 import { ApiFailure } from "./security/access.js";
 import { registerM1 } from "./api/register.js";
 import { AgentHub, registerAgentTransport } from "./realtime/agent-hub.js";
+import type { AgentClientIdentity } from "./realtime/agent-client-identity.js";
 
 export function buildApp(
   options: FastifyServerOptions = {},
-  dependencies?: { database: DatabaseConnection; secureCookies?: boolean; agentHeartbeatTimeoutMs?: number; agentSweepIntervalMs?: number; agentTaskTimeoutMs?: number },
+  dependencies?: { database: DatabaseConnection; secureCookies?: boolean; agentHeartbeatTimeoutMs?: number; agentSweepIntervalMs?: number; agentTaskTimeoutMs?: number; agentClientIdentity?: AgentClientIdentity | null },
 ) {
   const app = Fastify({ bodyLimit: 64 * 1024, ...options });
 
@@ -21,7 +22,7 @@ export function buildApp(
       sweepIntervalMs: dependencies.agentSweepIntervalMs ?? 5_000,
       taskTimeoutMs: dependencies.agentTaskTimeoutMs ?? 15_000,
     });
-    registerM1(app, dependencies.database, dependencies.secureCookies ?? false, hub);
+    registerM1(app, dependencies.database, dependencies.secureCookies ?? false, hub, dependencies.agentClientIdentity?.certificatePem);
     registerAgentTransport(app, dependencies.database, hub, dependencies.secureCookies ?? false);
     app.addHook("onClose", async () => { hub.shutdown(); });
   }

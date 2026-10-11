@@ -70,7 +70,7 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.AgentName) == "" {
 		return errors.New("Agent name must not be empty")
 	}
-	if c.EndpointHost != "" || c.EndpointPort != 0 || c.TLSCertFile != "" || c.TLSKeyFile != "" {
+	if c.ReverseEndpointConfigured() {
 		if net.ParseIP(c.EndpointHost) == nil || c.EndpointPort < 1 || c.EndpointPort > 65535 ||
 			c.TLSCertFile == "" || c.TLSKeyFile == "" {
 			return errors.New("reverse WSS endpoint requires IP, port, TLS certificate and private key")
@@ -111,4 +111,9 @@ func isLoopback(host string) bool {
 func carrierGradeNAT(ip net.IP) bool {
 	v4 := ip.To4()
 	return v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127
+}
+
+// ReverseEndpointConfigured means the Agent is configured to listen for Server WSS.
+func (c Config) ReverseEndpointConfigured() bool {
+	return c.EndpointHost != "" || c.EndpointPort != 0 || c.TLSCertFile != "" || c.TLSKeyFile != ""
 }
