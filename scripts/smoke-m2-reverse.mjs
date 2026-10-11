@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { X509Certificate } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -105,6 +106,11 @@ try {
     "-addext", "extendedKeyUsage=clientAuth",
   ], { stdio: "pipe" });
   chmodSync(clientKey, 0o600);
+  const publicClientCert = new X509Certificate(readFileSync(clientCert));
+  console.log("Reverse CI client certificate metadata:", JSON.stringify({
+    ca: publicClientCert.ca, keyUsage: publicClientCert.keyUsage,
+    validFrom: publicClientCert.validFrom, validTo: publicClientCert.validTo,
+  }));
   const env = {
     ...process.env, DATABASE_URL: join(temp, "navloom.db"), HOST: "127.0.0.1",
     PORT: String(serverPort), NODE_ENV: "test",
