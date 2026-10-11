@@ -227,10 +227,12 @@ export function registerAgentTransport(
             try {
               const url = new URL(origin);
               originAllowed = ["http:", "https:"].includes(url.protocol) &&
+                (!production || url.protocol === "https:") &&
                 url.host === request.headers.host && !url.username && !url.password;
             } catch { /* reject malformed origins */ }
           }
           if (!originAllowed) throw new ApiFailure(403, "ORIGIN_REJECTED", "页面来源不受信任");
+          if (presence.activePages >= 256) throw new ApiFailure(429, "PRESENCE_LIMIT", "在线页面数量已达上限");
           if (!access.admin(request) && !access.home(request)) {
             throw new ApiFailure(401, "HOME_ACCESS_REQUIRED", "请先登录或解锁导航首页");
           }
