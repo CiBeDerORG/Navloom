@@ -2,7 +2,8 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import AdminShell from "../components/AdminShell.vue";
 import {
-  getAgents, issueAgentPairToken, renameAgent, revokeAgent, requestAgentCapabilityProbe, type AgentDevice,
+  getAgents, issueAgentPairToken, renameAgent, revokeAgent, requestAgentCapabilityProbe,
+  getAgentProbeSettings, updateAgentProbeSettings, checkAgentConnections, type AgentDevice,
 } from "../lib/api";
 
 const agents = ref<AgentDevice[]>([]);
@@ -16,6 +17,53 @@ const pairExpiresAt = ref("");
 const editingId = ref<string | null>(null);
 const editingName = ref("");
 let pollTimer: ReturnType<typeof setInterval> | undefined;
+const probeMode = ref<"auto" | "manual">("manual");
+const probeIntervalMs = ref(30_000);
+const probeBusy = ref(false);
+const probeError = ref("");
+const probeNotice = ref("");
+
+async function loadProbeSettings() {
+  const settings = await getAgentProbeSettings();
+  probeMode.value = settings.mode;
+  probeIntervalMs.value = settings.intervalMs;
+}
+function receiveProbeSettings(event: Event) {
+  const settings = (event as CustomEvent<{ mode: "auto" | "manual"; intervalMs: number }>).detail;
+  if (settings && (settings.mode === "auto" || settings.mode === "manual")) {
+    probeMode.value = settings.mode;
+    probeIntervalMs.value = settings.intervalMs;
+  }
+}
+async function saveProbeSettings() {
+  if (probeBusy.value) return;
+  probeBusy.value = true;
+  probeError.value = "";
+  probeNotice.value = "";
+  try {
+    await updateAgentProbeSettings(probeMode.value, probeIntervalMs.value);
+    probeNotice.value = "检测设置已保存，并同步到所有已登录页面。";
+  } catch (cause) {
+    probeError.value = cause instanceof Error ? cause.message : "无法保存检测设置";
+  } finally {
+    probeBusy.value = false;
+  }
+}
+async function checkConnections() {
+  if (probeBusy.value) return;
+  probeBusy.value = true;
+  probeError.value = "";
+  probeNotice.value = "";
+  try {
+    const result = await checkAgentConnections();
+    probeNotice.value = "已向 " + result.sent + " 台已连接 Agent 发送 WSS Ping 检测。";
+    await refresh();
+  } catch (cause) {
+    probeError.value = cause instanceof Error ? cause.message : "连接检测失败";
+  } finally {
+    probeBusy.value = false;
+  }
+}
 
 const selected = computed(() => agents.value.find((agent) => agent.id === selectedId.value) ?? null);
 
@@ -111,12 +159,17 @@ function formatDate(value: number | null) {
 }
 
 onMounted(() => {
+  window.addEventListener("navloom-probe-settings", receiveProbeSettings);
+  void loadProbeSettings().catch(() => { probeError.value = "无法加载连接检测设置"; });
   void load();
   pollTimer = setInterval(() => {
     if (document.visibilityState === "visible" && !busy.value) void refresh().catch(() => {});
   }, 10_000);
 });
-onUnmounted(() => { if (pollTimer) clearInterval(pollTimer); });
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer);
+  window.removeEventListener("navloom-probe-settings", receiveProbeSettings);
+});
 </script>
 
 <template>
@@ -125,12 +178,40 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer); });
       <p class="text-xs font-semibold tracking-widest text-sky-400">DEVICES & APPLICATIONS</p>
       <h1 class="mt-2 text-3xl font-semibold">应用实例管理</h1>
       <p class="mt-2 text-sm text-slate-400">
-        M2 已接入 Agent WSS 安全认证、心跳与实时在线状态；容器池及 Docker 操作仍待实现。
+        正在迁移为 Server 按需连接 Agent，连接检测使用 WSS Ping/Pong；容器池及 Docker 操作仍待实现。
       </p>
     </header>
 
     <p v-if="error" role="alert" class="rounded-lg border border-rose-500/30 p-3 text-rose-300">{{ error }}</p>
     <p v-if="notice" role="status" class="rounded-lg border border-emerald-500/30 p-3 text-emerald-300">{{ notice }}</p>
+
+    <section class="rounded-2xl border border-white/10 bg-white/5 p-6">
+      <h2 class="text-xl font-semibold">Agent 连接检测</h2>
+      <p class="mt-2 text-sm text-slate-400">全局共享一套连接和检测设置。后台页面、已解锁的普通导航页都计入在线；页面在后台仍保持在线。手动模式不会定时发送 Agent Ping。</p>
+      <p v-if="probeError" class="mt-3 text-sm text-rose-300" role="alert">{{ probeError }}</p>
+      <p v-if="probeNotice" class="mt-3 text-sm text-emerald-300" role="status">{{ probeNotice }}</p>
+      <div class="mt-4 flex flex-wrap items-end gap-3">
+        <label class="text-sm text-slate-300">检测模式
+          <select v-model="probeMode" class="mt-1 block rounded-lg border border-white/20 bg-slate-900 px-3 py-2">
+            <option value="manual">手动</option>
+            <option value="auto">自动</option>
+          </select>
+        </label>
+        <label class="text-sm text-slate-300">自动检测间隔
+          <select v-model.number="probeIntervalMs" :disabled="probeMode !== 'auto'" class="mt-1 block rounded-lg border border-white/20 bg-slate-900 px-3 py-2 disabled:opacity-50">
+            <option :value="5000">5 秒</option>
+            <option :value="10000">10 秒</option>
+            <option :value="15000">15 秒</option>
+            <option :value="30000">30 秒</option>
+            <option :value="60000">60 秒</option>
+            <option :value="120000">120 秒</option>
+          </select>
+        </label>
+        <button type="button" :disabled="probeBusy" class="rounded-lg border border-sky-500/40 px-4 py-2 text-sm disabled:opacity-50" @click="saveProbeSettings">保存设置</button>
+        <button type="button" :disabled="probeBusy" class="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" @click="checkConnections">检测连接</button>
+      </div>
+      <p class="mt-3 text-xs text-slate-400">检测连接仅发送 WSS Ping；「刷新 Docker 能力」是独立的只读任务，不会由手动检测自动执行。</p>
+    </section>
 
     <section class="rounded-2xl border border-white/10 bg-white/5 p-6">
       <h2 class="text-xl font-semibold">接入新 Agent</h2>

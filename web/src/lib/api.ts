@@ -42,14 +42,41 @@ export async function getSystemStatus(): Promise<SystemStatus> {
   return SystemStatusSchema.parse(await request("/system/status"));
 }
 export const getHomeStatus = () => request<HomeStatus>("/auth/home/status");
-export const unlockHome = (passphrase: string) => request<{ ok: boolean }>("/auth/home/unlock", { method: "POST", body: payload({ passphrase }) });
+function authChanged(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("navloom-auth-changed"));
+}
+export const unlockHome = async (passphrase: string) => {
+  const result = await request<{ ok: boolean }>("/auth/home/unlock", { method: "POST", body: payload({ passphrase }) });
+  authChanged();
+  return result;
+};
 export const getPublicNavigation = () => request<PublicNavigation>("/home/navigation");
 export const getAdminSession = () => request<AdminSession>("/auth/admin/session");
-export const loginAdmin = (username: string, password: string) => request<{ ok: boolean }>("/auth/admin/login", { method: "POST", body: payload({ username, password }) });
-export const logoutAdmin = () => request<{ ok: boolean }>("/auth/admin/logout", { method: "POST", body: "{}" });
-export const changeAdminPassword = (currentPassword: string, newPassword: string) => request<{ ok: boolean }>("/admin/settings/password", { method: "PATCH", body: payload({ currentPassword, newPassword }) });
-export const changeHomePassphrase = (passphrase: string) => request<{ ok: boolean }>("/admin/settings/home-passphrase", { method: "PATCH", body: payload({ passphrase }) });
-export const revokeHomeCredentials = () => request<{ ok: boolean }>("/admin/settings/home/revoke", { method: "POST", body: "{}" });
+export const loginAdmin = async (username: string, password: string) => {
+  const result = await request<{ ok: boolean }>("/auth/admin/login", { method: "POST", body: payload({ username, password }) });
+  authChanged();
+  return result;
+};
+export const logoutAdmin = async () => {
+  const result = await request<{ ok: boolean }>("/auth/admin/logout", { method: "POST", body: "{}" });
+  authChanged();
+  return result;
+};
+export const changeAdminPassword = async (currentPassword: string, newPassword: string) => {
+  const result = await request<{ ok: boolean }>("/admin/settings/password", { method: "PATCH", body: payload({ currentPassword, newPassword }) });
+  authChanged();
+  return result;
+};
+export const changeHomePassphrase = async (passphrase: string) => {
+  const result = await request<{ ok: boolean }>("/admin/settings/home-passphrase", { method: "PATCH", body: payload({ passphrase }) });
+  authChanged();
+  return result;
+};
+export const revokeHomeCredentials = async () => {
+  const result = await request<{ ok: boolean }>("/admin/settings/home/revoke", { method: "POST", body: "{}" });
+  authChanged();
+  return result;
+};
 
 export const getAdminNavigation = () => request<AdminNavigation>("/admin/navigation");
 export const createGroup = (name: string) => request<{ id: string }>("/admin/navigation/groups", { method: "POST", body: payload({ name }) });
@@ -95,3 +122,11 @@ export const getAgentTask = (id: string) => request<{ task: {
   id: string; agentId: string; operation: string; status: "sent" | "unknown" | "succeeded" | "failed";
   result: unknown; createdAt: number; dispatchedAt: number; deadlineAt: number; finishedAt: number | null;
 } }>("/admin/agent-tasks/" + encodeURIComponent(id));
+
+// Global connectivity checks (WSS Ping/Pong only; no Docker task or capability probe).
+export type AgentProbeSettings = { mode: "auto" | "manual"; intervalMs: number; updatedAt: number; activePages: number };
+export const getAgentProbeSettings = () => request<AgentProbeSettings>("/admin/agents/probe-settings");
+export const updateAgentProbeSettings = (mode: "auto" | "manual", intervalMs: number) =>
+  request<AgentProbeSettings>("/admin/agents/probe-settings", { method: "PATCH", body: payload({ mode, intervalMs }) });
+export const checkAgentConnections = () =>
+  request<{ sent: number }>("/admin/agents/probe", { method: "POST", body: "{}" });
