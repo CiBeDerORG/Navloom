@@ -12,6 +12,7 @@
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 已确定技术栈、职责边界与协议原则 |
 | [DECISIONS.md](./DECISIONS.md) | 已确认决策、建议和待确认事项 |
 | [ROADMAP.md](./ROADMAP.md) | 里程碑、交付顺序和完成条件 |
+| [M0-IMPLEMENTATION.md](./M0-IMPLEMENTATION.md) | M0 工程初始化实施记录与 CI 验收证据 |
 | [TRACEABILITY.md](./TRACEABILITY.md) | 需求 ID → 任务 ID 对照表 |
 | [tasks/README.md](./tasks/README.md) | 任务索引、优先级、状态、执行约定 |
 | [tasks/01-foundation.md](./tasks/01-foundation.md) | 工程基础与数据模型 |
@@ -37,7 +38,7 @@
 - **已确认**：用户明确决定的产品行为。
 - **建议 / 待确认**：为了落地提出的设计，尚未取得最终确认。
 - **P0**：v1 核心闭环必需；**P1**：首版之后增强；**P2**：长期候选。
-- 任务初始状态均为 **未开始**，不代表已实现。
+- 任务进度以各任务文件复选框为准；**M0 已完成，其他任务仍未开始**。
 - **不做**：v1 不做多用户、健康检查、Kubernetes、完整服务器运维与跨 Agent 调度。
 
 最后更新：2026-10-11。
