@@ -26,7 +26,7 @@ const (
 )
 
 type options struct {
-	heartbeat time.Duration
+	heartbeat  time.Duration
 	minBackoff time.Duration
 	maxBackoff time.Duration
 }
@@ -94,8 +94,8 @@ func connect(ctx context.Context, cfg config.Config, identity pairing.Identity) 
 	headers.Set("X-Navloom-Agent-Id", identity.AgentID)
 	headers.Set("X-Navloom-Protocol-Version", strconv.Itoa(protocol.Version))
 	dialer := websocket.Dialer{
-		HandshakeTimeout: 8 * time.Second,
-		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout:  8 * time.Second,
+		Proxy:             http.ProxyFromEnvironment,
 		EnableCompression: false,
 	}
 	conn, response, err := dialer.DialContext(ctx, target.String(), headers)
