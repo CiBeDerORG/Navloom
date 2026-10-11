@@ -31,6 +31,44 @@ jobs:
         run: |
           npm run db:migrate
           npm run db:migrate
+      - name: Development Server + Web HTTP smoke
+        run: |
+          set -euo pipefail
+          npm run start -w @navloom/server > /tmp/navloom-server.log 2>&1 &
+          server_pid=$!
+          npm run dev -w @navloom/web > /tmp/navloom-web.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$server_pid" "$web_pid" 2>/dev/null || true' EXIT
+
+          server_ready=false
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/v1/system/status | grep -q navloom-server; then
+              server_ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$server_ready" != true ]; then
+            cat /tmp/navloom-server.log
+            exit 1
+          fi
+
+          web_ready=false
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5173/ | grep -q Navloom; then
+              web_ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$web_ready" != true ]; then
+            cat /tmp/navloom-web.log
+            exit 1
+          fi
+          curl -fsS http://127.0.0.1:5173/admin/login | grep -q Navloom
+          curl -fsS http://127.0.0.1:5173/api/v1/system/status | grep -q navloom-server
+      - name: Development Compose syntax
+        run: docker compose -f compose.dev.yml config --quiet
 
   go:
     name: Go Agent
@@ -55,3 +93,11 @@ jobs:
       - name: Build Linux amd64 and arm64
         working-directory: agent
         run: ./scripts/build-linux.sh
+      - name: Agent CLI and unavailable Server smoke
+        working-directory: agent
+        run: |
+          go run ./cmd/navloom-agent -version | grep -q "Navloom Agent"
+          if NAVLOOM_SERVER_URL=ws://127.0.0.1:9/agent NAVLOOM_ALLOW_INSECURE_DEV=true go run ./cmd/navloom-agent -check; then
+            echo "Expected the unreachable Server check to fail"
+            exit 1
+          fi
