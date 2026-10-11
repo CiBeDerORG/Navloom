@@ -93,4 +93,4 @@
 ## M2 首批进度（2026-10-11）
 
 - **T-035 已通过自动化验收**：管理员签发 10 分钟有效的一次性令牌、消费后作废、失败限流、无明文持久化、审计事件和非管理员拒绝。证据见 [M2 实施记录](../M2-IMPLEMENTATION.md) 与 [GitHub Actions](https://github.com/CiBeDerORG/Navloom/actions/runs/38142225822)。
-- **T-034、T-036、T-041～T-043 仍未验收**：已有模型、Go 配对、设备 API/UI 和撤销逻辑，但尚需 WSS 重连/实时状态/主动断线联调。其余 M2 任务未开始。
+- **T-034、T-036、T-041～T-043 仍未验收**：已有模型、Go 配对、设备 API/UI 和撤销逻辑，但尚需 WSS 重连/实时状态/主动断线联调。T-037～T-040 的 WSS/心跳/自动重连/协议基础已提交且 [CI 38144150805](https://github.com/CiBeDerORG/Navloom/actions/runs/38144150805) 4/4 通过，但**Codex 独立验收仍为 NOT_RUN**；T-044～T-059 尚未实现。**所有 M2 验收步骤统一维护在 [Codex 回归文件](../M1-CODEX-REGRESSION.md)**。
