@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabaseConnection } from "../db/client.js";
 import { Access, ApiFailure, AttemptLimiter } from "../security/access.js";
+import type { AgentHub } from "../realtime/agent-hub.js";
 
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const tokenDigest = (token: string): string => createHash("sha256").update(token).digest("hex");
@@ -24,7 +25,7 @@ function audit(db: DatabaseConnection, event: string, agentId: string | null = n
   );
 }
 
-/** Future WSS handshake must use this identity check, never a homepage/admin cookie. */
+/** Agent identity check for WSS; never accept homepage/admin cookies as device credentials. */
 export function verifyAgentCredential(db: DatabaseConnection, agentId: string, credential: string): boolean {
   if (!z.string().uuid().safeParse(agentId).success || !tokenPattern.test(credential)) return false;
   const row = db.sqlite.prepare("SELECT credential_hash AS hash FROM agents WHERE id = ? AND revoked_at IS NULL")
@@ -33,7 +34,7 @@ export function verifyAgentCredential(db: DatabaseConnection, agentId: string, c
   return timingSafeEqual(Buffer.from(row.hash, "hex"), Buffer.from(tokenDigest(credential), "hex"));
 }
 
-export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnection, access: Access): void {
+export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnection, access: Access, hub: AgentHub): void {
   const pairLimiter = new AttemptLimiter(8);
   app.post("/api/v1/admin/agents/pair-tokens", async (request, reply) => {
     const admin = access.requireAdmin(request);
@@ -103,8 +104,7 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
       id: string; name: string; version: string | null; platform: string | null;
       architecture: string | null; registeredAt: number | null; lastSeenAt: number | null; revokedAt: number | null;
     }>;
-    // No WSS transport is connected yet. Never infer online from a stale lastSeenAt.
-    return { agents: agents.map((agent) => ({ ...agent, status: agent.revokedAt === null ? "offline" : "revoked" })) };
+    return { agents: agents.map((agent) => ({ ...agent, status: agent.revokedAt === null ? (hub.isOnline(agent.id) ? "online" : "offline") : "revoked" })) };
   });
 
   app.patch("/api/v1/admin/agents/:id", async (request) => {
@@ -125,7 +125,7 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     const result = db.sqlite.prepare("UPDATE agents SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").run(Date.now(), id.data.id);
     if (result.changes !== 1) throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在或已撤销");
     audit(db, "revoked", id.data.id);
-    // WSS connection teardown will be wired in T-037/T-043.
+    hub.disconnect(id.data.id, 4003, "revoked");
     return { ok: true };
   });
 }

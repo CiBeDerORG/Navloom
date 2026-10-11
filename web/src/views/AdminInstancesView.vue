@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import AdminShell from "../components/AdminShell.vue";
 import {
   getAgents, issueAgentPairToken, renameAgent, revokeAgent, type AgentDevice,
@@ -15,6 +15,7 @@ const pairToken = ref("");
 const pairExpiresAt = ref("");
 const editingId = ref<string | null>(null);
 const editingName = ref("");
+let pollTimer: ReturnType<typeof setInterval> | undefined;
 
 const selected = computed(() => agents.value.find((agent) => agent.id === selectedId.value) ?? null);
 
@@ -91,7 +92,13 @@ function formatDate(value: number | null) {
   return value === null ? "—" : new Date(value).toLocaleString();
 }
 
-onMounted(() => { void load(); });
+onMounted(() => {
+  void load();
+  pollTimer = setInterval(() => {
+    if (document.visibilityState === "visible" && !busy.value) void refresh().catch(() => {});
+  }, 10_000);
+});
+onUnmounted(() => { if (pollTimer) clearInterval(pollTimer); });
 </script>
 
 <template>
@@ -100,7 +107,7 @@ onMounted(() => { void load(); });
       <p class="text-xs font-semibold tracking-widest text-sky-400">DEVICES & APPLICATIONS</p>
       <h1 class="mt-2 text-3xl font-semibold">应用实例管理</h1>
       <p class="mt-2 text-sm text-slate-400">
-        M2 首批已接入 Agent 安全配对与设备登记。WSS、在线心跳、容器池及 Docker 操作仍待实现。
+        M2 已接入 Agent WSS 安全认证、心跳与实时在线状态；容器池及 Docker 操作仍待实现。
       </p>
     </header>
 
@@ -152,8 +159,8 @@ onMounted(() => { void load(); });
             :class="selectedId === agent.id ? 'border-sky-400 bg-sky-400/10' : 'border-white/10 hover:border-white/30'">
             <span class="min-w-0"><span class="block truncate font-semibold">{{ agent.name }}</span>
               <span class="block text-xs text-slate-400">{{ agent.platform || "未知系统" }} / {{ agent.architecture || "未知架构" }}</span></span>
-            <span class="rounded-full border border-white/20 px-2 py-1 text-xs" :class="agent.status === 'revoked' ? 'text-rose-300' : 'text-amber-300'">
-              {{ agent.status === "revoked" ? "已撤销" : "离线 · 待 WSS 接入" }}
+            <span class="rounded-full border border-white/20 px-2 py-1 text-xs" :class="agent.status === 'revoked' ? 'text-rose-300' : agent.status === 'online' ? 'text-emerald-300' : 'text-amber-300'">
+              {{ agent.status === "revoked" ? "已撤销" : agent.status === "online" ? "在线" : "离线" }}
             </span>
           </button>
         </div>
@@ -183,7 +190,7 @@ onMounted(() => { void load(); });
 
     <section class="rounded-2xl border border-dashed border-white/20 p-5 text-sm text-slate-400">
       <h2 class="font-semibold text-slate-200">容器池与应用实例</h2>
-      <p class="mt-2">等待后续 M2 WSS、Docker 发现和实例查询。配对设备不会自动创建导航卡片，也不代表 Docker 已可操作。</p>
+      <p class="mt-2">等待后续 M2 WSS、Docker 发现和实例查询。设备在线不代表 Docker 已可操作；容器不会自动创建导航卡片。</p>
     </section>
   </AdminShell>
 </template>

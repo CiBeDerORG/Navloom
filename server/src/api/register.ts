@@ -4,8 +4,9 @@ import { Access, ApiFailure } from "../security/access.js";
 import { registerAuth } from "./auth.js";
 import { registerNavigation } from "./navigation.js";
 import { registerAgentPairing } from "./agent-pairing.js";
+import type { AgentHub } from "../realtime/agent-hub.js";
 
-export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureCookies: boolean): void {
+export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureCookies: boolean, hub: AgentHub): void {
   const access = new Access(db, secureCookies);
   // JSON requests require a non-simple header. Cross-site forms cannot send it;
   // cross-origin fetches require CORS preflight, which this server does not allow.
@@ -40,5 +41,5 @@ export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureC
   });
   registerAuth(app, db, access);
   registerNavigation(app, db, access);
-  registerAgentPairing(app, db, access);
+  registerAgentPairing(app, db, access, hub);
 }

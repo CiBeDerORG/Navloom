@@ -3,10 +3,11 @@ import { API_VERSION, SystemStatusSchema } from "@navloom/contracts";
 import type { DatabaseConnection } from "./db/client.js";
 import { ApiFailure } from "./security/access.js";
 import { registerM1 } from "./api/register.js";
+import { AgentHub, registerAgentTransport } from "./realtime/agent-hub.js";
 
 export function buildApp(
   options: FastifyServerOptions = {},
-  dependencies?: { database: DatabaseConnection; secureCookies?: boolean },
+  dependencies?: { database: DatabaseConnection; secureCookies?: boolean; agentHeartbeatTimeoutMs?: number; agentSweepIntervalMs?: number },
 ) {
   const app = Fastify({ bodyLimit: 64 * 1024, ...options });
 
@@ -14,7 +15,15 @@ export function buildApp(
     SystemStatusSchema.parse({ service: "navloom-server", status: "ok", api_version: API_VERSION }),
   );
 
-  if (dependencies) registerM1(app, dependencies.database, dependencies.secureCookies ?? false);
+  if (dependencies) {
+    const hub = new AgentHub(dependencies.database, {
+      heartbeatTimeoutMs: dependencies.agentHeartbeatTimeoutMs ?? 45_000,
+      sweepIntervalMs: dependencies.agentSweepIntervalMs ?? 5_000,
+    });
+    registerM1(app, dependencies.database, dependencies.secureCookies ?? false, hub);
+    registerAgentTransport(app, dependencies.database, hub, dependencies.secureCookies ?? false);
+    app.addHook("onClose", async () => { hub.shutdown(); });
+  }
 
   app.setNotFoundHandler(async (_request, reply) =>
     reply.status(404).send({ error: { code: "NOT_FOUND", message: "Route not found" } }),

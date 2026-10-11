@@ -74,7 +74,7 @@ export function iconIsUrl(icon: string | null): boolean {
 export type AgentDevice = {
   id: string; name: string; version: string | null; platform: string | null;
   architecture: string | null; registeredAt: number | null; lastSeenAt: number | null;
-  revokedAt: number | null; status: "offline" | "revoked";
+  revokedAt: number | null; status: "online" | "offline" | "revoked";
 };
 export const getAgents = () => request<{ agents: AgentDevice[] }>("/admin/agents");
 export const issueAgentPairToken = () => request<{ token: string; expiresAt: string }>(
