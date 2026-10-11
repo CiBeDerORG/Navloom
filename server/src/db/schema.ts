@@ -56,6 +56,10 @@ export const agents = sqliteTable("agents", {
   lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
   registeredAt: integer("registered_at", { mode: "timestamp_ms" }),
   revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+  endpointHost: text("endpoint_host"),
+  endpointPort: integer("endpoint_port"),
+  tlsCertPem: text("tls_cert_pem"),
+  tlsCertFingerprint: text("tls_cert_fingerprint"),
 }, (table) => [uniqueIndex("agents_credential_hash_uq").on(table.credentialHash)]);
 export const agentPairTokens = sqliteTable("agent_pair_tokens", {
   id: text("id").primaryKey(),

@@ -1,4 +1,5 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual, X509Certificate } from "node:crypto";
+import { isIP } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabaseConnection } from "../db/client.js";
@@ -9,16 +10,51 @@ const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const tokenDigest = (token: string): string => createHash("sha256").update(token).digest("hex");
 const newSecret = (): string => randomBytes(32).toString("base64url");
 const tokenTTL = 10 * 60 * 1000;
+const endpointRequest = z.object({
+  host: z.string().min(3).max(64),
+  port: z.number().int().min(1).max(65535),
+  certificatePem: z.string().min(100).max(8192),
+}).strict();
 const pairRequest = z.object({
   token: z.string().regex(tokenPattern),
   name: z.string().trim().min(1).max(80),
   version: z.string().trim().min(1).max(80),
   platform: z.string().trim().min(1).max(80),
   architecture: z.string().trim().min(1).max(80),
+  endpoint: endpointRequest.optional(),
 }).strict();
 const renameRequest = z.object({ name: z.string().trim().min(1).max(80) }).strict();
 const idRequest = z.object({ id: z.string().uuid() });
 const emptyRequest = z.object({}).strict();
+
+function privateHost(host: string): boolean {
+  if (isIP(host) === 4) {
+    const [a, b] = host.split(".").map(Number);
+    return a === 10 || (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+  }
+  if (isIP(host) === 6) return /^f[cd][0-9a-f:]+$/i.test(host);
+  return false; // IP literal only: prevent DNS rebinding and public-network SSRF.
+}
+
+function validateEndpoint(input: z.infer<typeof endpointRequest> | undefined): {
+  host: string; port: number; certificatePem: string; fingerprint: string;
+} | null {
+  if (!input) return null; // legacy registrations remain unconfigured until re-paired.
+  if (!privateHost(input.host)) throw new ApiFailure(401, "PAIRING_REJECTED", "Agent 私网端点无效");
+  let cert: X509Certificate;
+  try { cert = new X509Certificate(input.certificatePem); }
+  catch { throw new ApiFailure(401, "PAIRING_REJECTED", "Agent TLS 证书无效"); }
+  const now = Date.now();
+  if (Date.parse(cert.validFrom) > now || Date.parse(cert.validTo) <= now ||
+      !cert.subjectAltName?.split(", ").includes("IP Address:" + input.host)) {
+    throw new ApiFailure(401, "PAIRING_REJECTED", "Agent TLS 证书地址或有效期无效");
+  }
+  return {
+    host: input.host, port: input.port, certificatePem: input.certificatePem,
+    fingerprint: cert.fingerprint256.replaceAll(":", "").toLowerCase(),
+  };
+}
 
 function audit(db: DatabaseConnection, event: string, agentId: string | null = null): void {
   db.sqlite.prepare("INSERT INTO agent_audit_events (id, agent_id, event, created_at) VALUES (?, ?, ?, ?)").run(
@@ -70,14 +106,16 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     const agentId = randomUUID();
     const credential = newSecret();
     try {
+      const endpoint = validateEndpoint(input.data.endpoint);
       db.sqlite.transaction(() => {
         const token = db.sqlite.prepare(
           "SELECT id FROM agent_pair_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
         ).get(tokenDigest(input.data.token), now) as { id: string } | undefined;
         if (!token) throw new ApiFailure(401, "PAIRING_REJECTED", "接入令牌无效或已失效");
         db.sqlite.prepare(
-          "INSERT INTO agents (id, name, credential_hash, version, platform, architecture, registered_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ).run(agentId, input.data.name, tokenDigest(credential), input.data.version, input.data.platform, input.data.architecture, now);
+          "INSERT INTO agents (id, name, credential_hash, version, platform, architecture, registered_at, endpoint_host, endpoint_port, tls_cert_pem, tls_cert_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(agentId, input.data.name, tokenDigest(credential), input.data.version, input.data.platform, input.data.architecture, now,
+          endpoint?.host ?? null, endpoint?.port ?? null, endpoint?.certificatePem ?? null, endpoint?.fingerprint ?? null);
         const used = db.sqlite.prepare(
           "UPDATE agent_pair_tokens SET used_at = ?, agent_id = ? WHERE id = ? AND used_at IS NULL",
         ).run(now, agentId, token.id);
@@ -119,10 +157,11 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
   app.get("/api/v1/admin/agents", async (request) => {
     access.requireAdmin(request);
     const agents = db.sqlite.prepare(
-      "SELECT id, name, version, platform, architecture, registered_at AS registeredAt, last_seen_at AS lastSeenAt, revoked_at AS revokedAt FROM agents ORDER BY name COLLATE NOCASE ASC, id ASC",
+      "SELECT id, name, version, platform, architecture, registered_at AS registeredAt, last_seen_at AS lastSeenAt, revoked_at AS revokedAt, endpoint_host AS endpointHost, endpoint_port AS endpointPort FROM agents ORDER BY name COLLATE NOCASE ASC, id ASC",
     ).all() as Array<{
       id: string; name: string; version: string | null; platform: string | null;
       architecture: string | null; registeredAt: number | null; lastSeenAt: number | null; revokedAt: number | null;
+      endpointHost: string | null; endpointPort: number | null;
     }>;
     return { agents: agents.map((agent) => ({
       ...agent,
@@ -136,10 +175,11 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     const id = idRequest.safeParse(request.params);
     if (!id.success) throw new ApiFailure(400, "INVALID_INPUT", "设备 ID 无效");
     const agent = db.sqlite.prepare(
-      "SELECT id, name, version, platform, architecture, registered_at AS registeredAt, last_seen_at AS lastSeenAt, revoked_at AS revokedAt FROM agents WHERE id = ?",
+      "SELECT id, name, version, platform, architecture, registered_at AS registeredAt, last_seen_at AS lastSeenAt, revoked_at AS revokedAt, endpoint_host AS endpointHost, endpoint_port AS endpointPort FROM agents WHERE id = ?",
     ).get(id.data.id) as {
       id: string; name: string; version: string | null; platform: string | null;
       architecture: string | null; registeredAt: number | null; lastSeenAt: number | null; revokedAt: number | null;
+      endpointHost: string | null; endpointPort: number | null;
     } | undefined;
     if (!agent) throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在");
     return { agent: {

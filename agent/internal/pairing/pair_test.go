@@ -99,3 +99,22 @@ func TestReadTokenAndIdentityPermissions(t *testing.T) {
 		t.Fatal("public-readable identity must be rejected")
 	}
 }
+
+
+func TestPairRequiresValidReverseEndpointConfiguration(t *testing.T) {
+	cfg := config.Config{
+		ServerURL: "wss://navloom.example.com/agent", AgentName: "nas",
+		EndpointHost: "8.8.8.8", EndpointPort: 9443,
+		TLSCertFile: "/tmp/agent.crt", TLSKeyFile: "/tmp/agent.key",
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("public Agent endpoint must be rejected")
+	}
+	cfg.EndpointHost = "10.20.30.40"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Pair(context.Background(), cfg, sampleSecret, "test"); err == nil {
+		t.Fatal("pairing must reject missing Agent TLS certificate")
+	}
+}

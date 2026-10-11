@@ -16,6 +16,10 @@ type Config struct {
 	ServerURL        string `json:"server_url"`
 	AgentName        string `json:"agent_name"`
 	TokenFile        string `json:"token_file"`
+	EndpointHost     string `json:"endpoint_host"`
+	EndpointPort     int    `json:"endpoint_port"`
+	TLSCertFile      string `json:"tls_cert_file"`
+	TLSKeyFile       string `json:"tls_key_file"`
 	AllowInsecureDev bool   `json:"allow_insecure_dev"`
 }
 
@@ -66,6 +70,16 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.AgentName) == "" {
 		return errors.New("Agent name must not be empty")
 	}
+	if c.EndpointHost != "" || c.EndpointPort != 0 || c.TLSCertFile != "" || c.TLSKeyFile != "" {
+		if net.ParseIP(c.EndpointHost) == nil || c.EndpointPort < 1 || c.EndpointPort > 65535 ||
+			c.TLSCertFile == "" || c.TLSKeyFile == "" {
+			return errors.New("reverse WSS endpoint requires IP, port, TLS certificate and private key")
+		}
+		ip := net.ParseIP(c.EndpointHost)
+		if !ip.IsPrivate() && !carrierGradeNAT(ip) {
+			return errors.New("reverse WSS endpoint must be a private/EasyTier IP")
+		}
+	}
 	if strings.TrimSpace(c.ServerURL) == "" {
 		return errors.New("NAVLOOM_SERVER_URL (or server_url in config) is required")
 	}
@@ -91,4 +105,10 @@ func isLoopback(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// carrierGradeNAT permits EasyTier overlays using RFC 6598 addresses.
+func carrierGradeNAT(ip net.IP) bool {
+	v4 := ip.To4()
+	return v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127
 }

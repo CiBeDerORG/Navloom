@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -56,10 +59,42 @@ func Pair(ctx context.Context, cfg config.Config, token, version string) (Identi
 	}
 	target.Path = "/api/v1/agent/pair"
 	target.RawPath = ""
-	payload, err := json.Marshal(map[string]string{
+	requestBody := map[string]any{
 		"token": token, "name": cfg.AgentName, "version": version,
 		"platform": runtime.GOOS, "architecture": runtime.GOARCH,
-	})
+	}
+	if cfg.EndpointHost != "" {
+		certificate, err := os.ReadFile(cfg.TLSCertFile)
+		if err != nil || len(certificate) > 8192 {
+			return Identity{}, errors.New("cannot read Agent TLS certificate")
+		}
+		block, rest := pem.Decode(certificate)
+		if block == nil || block.Type != "CERTIFICATE" || len(bytes.TrimSpace(rest)) != 0 {
+			return Identity{}, errors.New("Agent TLS certificate must contain one PEM certificate")
+		}
+		parsed, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return Identity{}, errors.New("invalid Agent TLS certificate")
+		}
+		endpointIP := net.ParseIP(cfg.EndpointHost)
+		matched := false
+		for _, ip := range parsed.IPAddresses {
+			if ip.Equal(endpointIP) {
+				matched = true
+			}
+		}
+		if !matched {
+			return Identity{}, errors.New("Agent TLS certificate IP SAN does not match endpoint")
+		}
+		keyInfo, err := os.Stat(cfg.TLSKeyFile)
+		if err != nil || !keyInfo.Mode().IsRegular() || keyInfo.Mode().Perm()&0077 != 0 {
+			return Identity{}, errors.New("Agent TLS key must be a private file")
+		}
+		requestBody["endpoint"] = map[string]any{
+			"host": cfg.EndpointHost, "port": cfg.EndpointPort, "certificatePem": string(certificate),
+		}
+	}
+	payload, err := json.Marshal(requestBody)
 	if err != nil {
 		return Identity{}, errors.New("could not encode pairing request")
 	}

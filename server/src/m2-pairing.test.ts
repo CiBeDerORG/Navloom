@@ -92,3 +92,27 @@ test("M2: admin rename/revoke persists; homepage credential cannot manage device
   assert.equal((await app.inject({ method: "GET", url: api + "/admin/agents", headers: { cookie } })).json().agents[0].status, "revoked");
   assert.throws(() => db.sqlite.prepare("INSERT INTO agents (id, name) VALUES (?, ?)").run(agentId, "duplicate"));
 });
+
+
+test("M2 reverse pairing foundation: unsafe endpoint and invalid TLS cert never consume token", async (t) => {
+  const { app, db, cookie } = await setup(t);
+  const issued = await app.inject({ method: "POST", url: api + "/admin/agents/pair-tokens", headers: { ...json, cookie }, payload: {} });
+  const token = issued.json().token as string;
+  const attempt = async (host: string, certificatePem: string) => app.inject({
+    method: "POST", url: api + "/agent/pair", headers: json,
+    payload: { token, ...details, endpoint: { host, port: 9443, certificatePem } },
+  });
+  const invalidPem = "-----BEGIN CERTIFICATE-----" + "A".repeat(120) + "-----END CERTIFICATE-----";
+  assert.equal((await attempt("8.8.8.8", invalidPem)).statusCode, 401);
+  assert.equal((await attempt("nas.example.com", invalidPem)).statusCode, 401);
+  assert.equal((await attempt("127.0.0.1", invalidPem)).statusCode, 401);
+  assert.equal((await attempt("10.1.2.3", invalidPem)).statusCode, 401);
+  const unused = db.sqlite.prepare("SELECT used_at AS usedAt FROM agent_pair_tokens").get() as { usedAt: number | null };
+  assert.equal(unused.usedAt, null);
+  const paired = await app.inject({ method: "POST", url: api + "/agent/pair", headers: json, payload: { token, ...details } });
+  assert.equal(paired.statusCode, 201); // Legacy identity remains unconfigured for reverse WSS.
+  const agentId = paired.json().agentId as string;
+  const row = db.sqlite.prepare("SELECT endpoint_host AS host, tls_cert_pem AS cert FROM agents WHERE id = ?").get(agentId) as { host: string | null; cert: string | null };
+  assert.equal(row.host, null);
+  assert.equal(row.cert, null);
+});
