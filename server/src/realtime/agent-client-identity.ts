@@ -17,7 +17,7 @@ export function loadAgentClientIdentity(certPath: string, keyPath: string): Agen
   const cert = new X509Certificate(certificatePem);
   const now = Date.now();
   if (cert.ca || Date.parse(cert.validFrom) > now || Date.parse(cert.validTo) <= now ||
-      !cert.keyUsage?.includes("TLS Web Client Authentication")) {
+      !cert.keyUsage?.some((usage) => usage === "TLS Web Client Authentication" || usage === "1.3.6.1.5.5.7.3.2")) {
     throw new Error("Server Agent client certificate must be valid for TLS client authentication");
   }
   const privateKey = createPrivateKey(keyPem);
