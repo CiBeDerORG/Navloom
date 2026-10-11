@@ -1,4 +1,4 @@
-import { SystemStatusSchema, type SystemStatus } from "@navloom/contracts";
+import { SystemStatusSchema, type SystemStatus, type AgentCapabilities } from "@navloom/contracts";
 
 export type NavigationGroup = { id: string; name: string; sortOrder: number };
 export type NavigationCard = {
@@ -75,6 +75,7 @@ export type AgentDevice = {
   id: string; name: string; version: string | null; platform: string | null;
   architecture: string | null; registeredAt: number | null; lastSeenAt: number | null;
   revokedAt: number | null; status: "online" | "offline" | "revoked";
+  capabilities: AgentCapabilities | null; checkedAt: number | null;
 };
 export const getAgents = () => request<{ agents: AgentDevice[] }>("/admin/agents");
 export const issueAgentPairToken = () => request<{ token: string; expiresAt: string }>(
@@ -86,3 +87,11 @@ export const renameAgent = (id: string, name: string) => request<{ ok: boolean }
 export const revokeAgent = (id: string) => request<{ ok: boolean }>(
   "/admin/agents/" + encodeURIComponent(id) + "/revoke", { method: "POST", body: "{}" },
 );
+
+export const requestAgentCapabilityProbe = (id: string) => request<{ taskId: string }>(
+  "/admin/agents/" + encodeURIComponent(id) + "/capability-probe", { method: "POST", body: "{}" },
+);
+export const getAgentTask = (id: string) => request<{ task: {
+  id: string; agentId: string; operation: string; status: "sent" | "unknown" | "succeeded" | "failed";
+  result: unknown; createdAt: number; dispatchedAt: number; deadlineAt: number; finishedAt: number | null;
+} }>("/admin/agent-tasks/" + encodeURIComponent(id));
