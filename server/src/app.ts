@@ -3,14 +3,14 @@ import { API_VERSION, SystemStatusSchema } from "@navloom/contracts";
 import type { DatabaseConnection } from "./db/client.js";
 import { ApiFailure } from "./security/access.js";
 import { registerM1 } from "./api/register.js";
-import { AgentHub, registerAgentTransport } from "./realtime/agent-hub.js";
+import { AgentHub, registerPagePresenceTransport } from "./realtime/agent-hub.js";
 import type { AgentClientIdentity } from "./realtime/agent-client-identity.js";
 import { ReverseAgentDialer } from "./realtime/agent-dialer.js";
 import { PagePresence } from "./realtime/page-presence.js";
 
 export function buildApp(
   options: FastifyServerOptions = {},
-  dependencies?: { database: DatabaseConnection; secureCookies?: boolean; agentHeartbeatTimeoutMs?: number; agentSweepIntervalMs?: number; agentTaskTimeoutMs?: number; agentClientIdentity?: AgentClientIdentity | null },
+  dependencies?: { database: DatabaseConnection; secureCookies?: boolean; agentSweepIntervalMs?: number; agentTaskTimeoutMs?: number; agentClientIdentity?: AgentClientIdentity | null },
 ) {
   const app = Fastify({ bodyLimit: 64 * 1024, ...options });
 
@@ -27,7 +27,7 @@ export function buildApp(
     const dialer = new ReverseAgentDialer(dependencies.database, dependencies.agentClientIdentity ?? null, hub);
     const presence = new PagePresence(dependencies.database, dialer, hub);
     registerM1(app, dependencies.database, dependencies.secureCookies ?? false, hub, dependencies.agentClientIdentity?.certificatePem, presence);
-    registerAgentTransport(app, dependencies.database, hub, dependencies.secureCookies ?? false, presence);
+    registerPagePresenceTransport(app, dependencies.database, presence, dependencies.secureCookies ?? false);
     app.addHook("onClose", async () => { presence.shutdown(); hub.shutdown(); });
   }
 

@@ -17,40 +17,36 @@ func fixture(t *testing.T, name string) []byte {
 	return data
 }
 
-func TestSharedHeartbeatFixtures(t *testing.T) {
-	_, payload, err := DecodeHeartbeat(fixture(t, "heartbeat.valid.json"))
-	if err != nil {
+func TestHelloFixtureAndProtocolVersion(t *testing.T) {
+	var msg Message
+	if err := strictJSON(fixture(t, "hello.valid.json"), &msg); err != nil {
 		t.Fatal(err)
 	}
-	if payload.UptimeSeconds != 30 {
-		t.Fatalf("unexpected uptime: %d", payload.UptimeSeconds)
+	if msg.ProtocolVersion != Version || msg.Type != "hello" {
+		t.Fatalf("expected v2 hello, got %+v", msg)
 	}
-	if _, _, err := DecodeHeartbeat(fixture(t, "heartbeat.invalid-version.json")); err == nil {
-		t.Fatal("invalid version should be rejected")
+	var invalid Message
+	if err := strictJSON(fixture(t, "hello.invalid-version.json"), &invalid); err != nil {
+		t.Fatal(err)
+	}
+	if invalid.ProtocolVersion == Version {
+		t.Fatal("old v1 is not a current protocol")
 	}
 }
 
-func TestNewHeartbeatRoundTrip(t *testing.T) {
-	message, err := NewHeartbeat("agent-1", 42)
-	if err != nil {
-		t.Fatal(err)
+func TestNewHelloAndResultNeverSendHeartbeat(t *testing.T) {
+	msg, err := NewHello(validAgent, "m2")
+	if err != nil { t.Fatal(err) }
+	if msg.Type != "hello" || msg.ProtocolVersion != Version { t.Fatal("invalid hello") }
+	result, err := NewCapabilityResult(validAgent, validTask, Capabilities{})
+	if err != nil { t.Fatal(err) }
+	if result.Type != "task_result" || result.ProtocolVersion != Version { t.Fatal("invalid task result") }
+	for _, value := range []Message{msg, result} {
+		raw, err := json.Marshal(value)
+		if err != nil { t.Fatal(err) }
+		if len(raw) == 0 { t.Fatal("empty message") }
 	}
-	data, err := json.Marshal(message)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, payload, err := DecodeHeartbeat(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if payload.UptimeSeconds != 42 {
-		t.Fatalf("unexpected uptime: %d", payload.UptimeSeconds)
-	}
-}
-
-func TestHeartbeatRejectsUnknownFields(t *testing.T) {
-	data := []byte(`{"protocol_version":1,"message_id":"4b0182c1-9312-4a42-a816-24fdfda39b55","agent_id":"agent-1","sent_at":"2026-10-11T12:00:00Z","type":"heartbeat","payload":{"uptime_seconds":30,"shell":"evil"}}`)
-	if _, _, err := DecodeHeartbeat(data); err == nil {
-		t.Fatal("unknown payload fields must be rejected")
+	if _, err := NewHello("agent-1", "m2"); err == nil {
+		t.Fatal("must reject invalid agent ID")
 	}
 }

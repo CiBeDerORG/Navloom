@@ -109,15 +109,12 @@ func run(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	var transportError error
-	if cfg.ReverseEndpointConfigured() {
-		transportError = transport.RunPassive(ctx, cfg, identity, version, log)
-	} else {
-		// Temporary legacy fallback while T-037/T-040 replace Server's inbound WSS.
-		transportError = transport.Run(ctx, cfg, identity, version, log)
+	if !cfg.ReverseEndpointConfigured() {
+		log.Error("passive Agent requires endpoint_host, endpoint_port and TLS certificate/key")
+		return 2
 	}
-	if transportError != nil {
-		log.Error("Agent transport stopped", "error", transportError)
+	if err := transport.RunPassive(ctx, cfg, identity, version, log); err != nil {
+		log.Error("Agent transport stopped", "error", err)
 		return 1
 	}
 	log.Info("Agent stopped")

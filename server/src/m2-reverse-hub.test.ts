@@ -14,11 +14,11 @@ test("T-039: reverse Agent accepts hello, no automatic JSON task/heartbeat, Pong
   migrate(db.orm, { migrationsFolder: resolve(process.cwd(), "drizzle") });
   const agentId = randomUUID();
   db.sqlite.prepare("INSERT INTO agents (id, name) VALUES (?, 'passive-nas')").run(agentId);
-  const hub = new AgentHub(db, { heartbeatTimeoutMs: 45, sweepIntervalMs: 10 });
+  const hub = new AgentHub(db, { sweepIntervalMs: 10 });
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   t.after(async () => { hub.shutdown(); for (const socket of server.clients) socket.terminate(); await new Promise<void>((done) => server.close(() => done())); db.close(); });
   const accepted = new Promise<void>((done) => server.once("connection", (socket) => {
-    hub.connect(agentId, socket, "reverse");
+    hub.connect(agentId, socket);
     done();
   }));
   await new Promise<void>((done) => server.once("listening", () => done()));
@@ -33,7 +33,7 @@ test("T-039: reverse Agent accepts hello, no automatic JSON task/heartbeat, Pong
   client.on("message", () => unsolicited++);
   client.on("ping", () => pingCount++);
   client.send(JSON.stringify({
-    protocol_version: 1,
+    protocol_version: 2,
     message_id: randomUUID(),
     agent_id: agentId,
     sent_at: new Date().toISOString(),
@@ -42,7 +42,7 @@ test("T-039: reverse Agent accepts hello, no automatic JSON task/heartbeat, Pong
   }));
   await wait(30);
   assert.equal(hub.isOnline(agentId), true);
-  await wait(90); // > legacy 45ms heartbeat timeout; reverse session must not expire.
+  await wait(90); // Idle Agent WSS must not autonomously time out or send heartbeat.
   assert.equal(hub.isOnline(agentId), true);
   assert.equal(unsolicited, 0, "no automatic capability probe or JSON heartbeat in reverse mode");
   assert.equal(pingCount, 0, "manual mode does not autonomously Ping");

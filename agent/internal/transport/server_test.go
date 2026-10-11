@@ -22,8 +22,12 @@ import (
 
 	"github.com/CiBeDerORG/Navloom/agent/internal/config"
 	"github.com/CiBeDerORG/Navloom/agent/internal/pairing"
+	"github.com/CiBeDerORG/Navloom/agent/internal/protocol"
 	"github.com/gorilla/websocket"
 )
+
+const testAgentID = "4b0182c1-9312-4a42-a816-24fdfda39b55"
+const testCredential = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func clientTLSCert(t *testing.T) (tls.Certificate, string) {
 	t.Helper()
@@ -101,7 +105,7 @@ func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 	url := strings.Replace(server.URL, "https://", "wss://", 1) + "/agent"
 	headers := http.Header{}
 	headers.Set("X-Navloom-Agent-Id", testAgentID)
-	headers.Set("X-Navloom-Protocol-Version", "1")
+	headers.Set("X-Navloom-Protocol-Version", "2")
 	if conn, _, err := makeDialer(nil).Dial(url, headers); err == nil {
 		conn.Close()
 		t.Fatal("missing Server client certificate was accepted")
@@ -113,7 +117,7 @@ func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 	}
 	wrongID := http.Header{}
 	wrongID.Set("X-Navloom-Agent-Id", "00000000-0000-4000-8000-000000000000")
-	wrongID.Set("X-Navloom-Protocol-Version", "1")
+	wrongID.Set("X-Navloom-Protocol-Version", "2")
 	if conn, response, err := makeDialer([]tls.Certificate{client}).Dial(url, wrongID); err == nil || response == nil || response.StatusCode != http.StatusUnauthorized {
 		if conn != nil {
 			conn.Close()
@@ -141,7 +145,7 @@ func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 	}
 	taskID := "de57a2f3-38da-4cb7-a676-81b3950b9701"
 	task, err := json.Marshal(map[string]any{
-		"protocol_version": 1,
+		"protocol_version": protocol.Version,
 		"message_id":       "a57be91b-cbf5-4c84-93cb-b07c126bb18a",
 		"agent_id":         testAgentID,
 		"task_id":          taskID,

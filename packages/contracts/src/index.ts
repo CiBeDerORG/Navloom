@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const API_VERSION = "v1" as const;
-export const AGENT_PROTOCOL_VERSION = 1 as const;
+export const AGENT_PROTOCOL_VERSION = 2 as const;
 
 export const SystemStatusSchema = z
   .object({
@@ -73,11 +73,6 @@ export const AgentMessageSchema = z.discriminatedUnion("type", [
     ...envelope,
     type: z.literal("hello"),
     payload: z.object({ version: z.string().min(1) }).strict(),
-  }).strict(),
-  z.object({
-    ...envelope,
-    type: z.literal("heartbeat"),
-    payload: z.object({ uptime_seconds: z.number().int().nonnegative() }).strict(),
   }).strict(),
   z.object({
     ...envelope,

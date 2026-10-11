@@ -195,3 +195,13 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 		}
 	})
 }
+
+// The passive Agent only writes a hello or an explicit task result.
+const maxMessageBytes = 64 * 1024
+
+func writeMessage(conn *websocket.Conn, message protocol.Message) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return err
+	}
+	return conn.WriteJSON(message)
+}

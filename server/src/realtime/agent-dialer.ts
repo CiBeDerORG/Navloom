@@ -15,11 +15,7 @@ type EndpointRow = {
   tlsCertFingerprint: string;
 };
 
-/**
- * T-037 foundation: the Server is the only party that dials a private Agent WSS.
- * setActive() must be driven by the global authenticated-page presence manager (T-040).
- * This class is not wired into app startup until that presence manager is available.
- */
+/** The Server dials trusted private Agents only while authenticated pages exist. */
 export class ReverseAgentDialer {
   private active = false;
   private readonly sockets = new Map<string, WebSocket>();
@@ -98,7 +94,7 @@ export class ReverseAgentDialer {
       this.connecting.delete(agentId);
       this.retryDelay.delete(agentId);
       this.sockets.set(agentId, socket);
-      this.hub.connect(agentId, socket, "reverse");
+      this.hub.connect(agentId, socket);
     });
     socket.once("close", () => {
       if (this.connecting.get(agentId) === socket) this.connecting.delete(agentId);

@@ -20,7 +20,7 @@ test("M2 reverse dialer: only private IP literals are eligible for outbound WSS"
 test("M2 reverse dialer: no page means no outbound connection; reject untrusted endpoints", () => {
   const db = openDatabase(":memory:");
   migrate(db.orm, { migrationsFolder: resolve(process.cwd(), "drizzle") });
-  const hub = new AgentHub(db, { heartbeatTimeoutMs: 45_000, sweepIntervalMs: 5000 });
+  const hub = new AgentHub(db, { sweepIntervalMs: 5000 });
   try {
     const agentId = randomUUID();
     db.sqlite.prepare(

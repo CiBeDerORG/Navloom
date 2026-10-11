@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const Version = 1
+const Version = 2
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
@@ -25,40 +25,10 @@ type Message struct {
 	Payload         json.RawMessage `json:"payload"`
 }
 
-type HeartbeatPayload struct {
-	UptimeSeconds int64 `json:"uptime_seconds"`
-}
-
-func DecodeHeartbeat(data []byte) (Message, HeartbeatPayload, error) {
-	var message Message
-	if err := strictJSON(data, &message); err != nil {
-		return message, HeartbeatPayload{}, fmt.Errorf("invalid Agent message: %w", err)
-	}
-	if message.ProtocolVersion != Version {
-		return message, HeartbeatPayload{}, errors.New("unsupported Agent protocol version")
-	}
-	if !uuidPattern.MatchString(message.MessageID) || message.AgentID == "" {
-		return message, HeartbeatPayload{}, errors.New("invalid message ID or Agent ID")
-	}
-	if _, err := time.Parse(time.RFC3339, message.SentAt); err != nil {
-		return message, HeartbeatPayload{}, errors.New("invalid sent_at timestamp")
-	}
-	if message.Type != "heartbeat" {
-		return message, HeartbeatPayload{}, errors.New("M0 supports only heartbeat message validation")
-	}
-	var payload HeartbeatPayload
-	if err := strictJSON(message.Payload, &payload); err != nil {
-		return message, payload, fmt.Errorf("invalid heartbeat payload: %w", err)
-	}
-	if payload.UptimeSeconds < 0 {
-		return message, payload, errors.New("uptime_seconds must be nonnegative")
-	}
-	return message, payload, nil
-}
-
-func NewHeartbeat(agentID string, uptimeSeconds int64) (Message, error) {
-	if agentID == "" || uptimeSeconds < 0 {
-		return Message{}, errors.New("invalid Agent ID or uptime")
+// A message envelope is generated only for explicit hello/task responses.
+func newEnvelope(agentID string) (Message, error) {
+	if !uuidPattern.MatchString(agentID) {
+		return Message{}, errors.New("invalid Agent ID")
 	}
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
@@ -67,18 +37,8 @@ func NewHeartbeat(agentID string, uptimeSeconds int64) (Message, error) {
 	random[6] = (random[6] & 0x0f) | 0x40
 	random[8] = (random[8] & 0x3f) | 0x80
 	id := fmt.Sprintf("%x-%x-%x-%x-%x", random[0:4], random[4:6], random[6:8], random[8:10], random[10:16])
-	payload, err := json.Marshal(HeartbeatPayload{UptimeSeconds: uptimeSeconds})
-	if err != nil {
-		return Message{}, err
-	}
-	return Message{
-		ProtocolVersion: Version,
-		MessageID:       id,
-		AgentID:         agentID,
-		SentAt:          time.Now().UTC().Format(time.RFC3339),
-		Type:            "heartbeat",
-		Payload:         payload,
-	}, nil
+	return Message{ProtocolVersion: Version, MessageID: id, AgentID: agentID,
+		SentAt: time.Now().UTC().Format(time.RFC3339)}, nil
 }
 
 func strictJSON(data []byte, target any) error {
@@ -98,7 +58,7 @@ func NewHello(agentID, version string) (Message, error) {
 	if version == "" {
 		return Message{}, errors.New("Agent version is required")
 	}
-	message, err := NewHeartbeat(agentID, 0)
+	message, err := newEnvelope(agentID)
 	if err != nil {
 		return Message{}, err
 	}
@@ -180,7 +140,7 @@ func NewCapabilityResult(agentID, taskID string, capabilities Capabilities) (Mes
 	if !uuidPattern.MatchString(taskID) {
 		return Message{}, errors.New("invalid task ID")
 	}
-	msg, err := NewHeartbeat(agentID, 0)
+	msg, err := newEnvelope(agentID)
 	if err != nil {
 		return Message{}, err
 	}

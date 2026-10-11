@@ -2,9 +2,9 @@
   "server_url": "wss://navloom.example.com/agent",
   "agent_name": "my-nas",
   "token_file": "",
-  "endpoint_host": "",
-  "endpoint_port": 0,
-  "tls_cert_file": "",
-  "tls_key_file": "",
+  "endpoint_host": "10.10.20.30",
+  "endpoint_port": 9443,
+  "tls_cert_file": "/var/lib/navloom/agent.pem",
+  "tls_key_file": "/var/lib/navloom/agent.key",
   "allow_insecure_dev": false
 }
