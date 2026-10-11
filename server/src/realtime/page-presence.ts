@@ -51,6 +51,10 @@ export class PagePresence {
     if (this.pages.size > 0) this.dialer.connectAgent(agentId);
   }
 
+  agentRevoked(agentId: string): void {
+    this.dialer.closeAgent(agentId);
+  }
+
   probeNow(): number {
     return this.pages.size > 0 ? this.hub.probeReverseAll() : 0;
   }
