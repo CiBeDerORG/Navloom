@@ -55,7 +55,7 @@ func TestPairRejectsRedirectsAndUnsafeURLs(t *testing.T) {
 		AgentName: "nas", AllowInsecureDev: true,
 		EndpointHost: "10.10.20.30", EndpointPort: 9443,
 		TLSCertFile: filepath.Join(dir, "agent.crt"),
-		TLSKeyFile: filepath.Join(dir, "agent.key"),
+		TLSKeyFile:  filepath.Join(dir, "agent.key"),
 	}
 	if err := GenerateAgentTLS(cfg); err != nil {
 		t.Fatal(err)
