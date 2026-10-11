@@ -43,6 +43,10 @@ func detectEngine(ctx context.Context) protocol.DockerCapability {
 			return protocol.DockerCapability{Reason: reason("unsupported_host")}
 		}
 	}
+	return detectEngineAt(ctx, socket)
+}
+
+func detectEngineAt(ctx context.Context, socket string) protocol.DockerCapability {
 	info, err := os.Stat(socket)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
