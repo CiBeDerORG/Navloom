@@ -27,7 +27,7 @@ const renameRequest = z.object({ name: z.string().trim().min(1).max(80) }).stric
 const idRequest = z.object({ id: z.string().uuid() });
 const emptyRequest = z.object({}).strict();
 
-function privateHost(host: string): boolean {
+export function privateHost(host: string): boolean {
   if (isIP(host) === 4) {
     const [a, rawB] = host.split(".").map(Number);
     const b = rawB ?? -1;

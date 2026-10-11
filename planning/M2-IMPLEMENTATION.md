@@ -114,3 +114,8 @@ npm run test:go
 - 未配置反向端点的旧 Agent 暂时走旧连接路径，待 T-037/T-040 完整迁移后删除；因此**项目整体尚未达到零通信目标**。Server 主动 WSS 客户端和全局已登录页面调度仍待开发。
 
 - Go 被动 WSS 隔离测试覆盖无客户端证书/伪造证书拒绝、错误 Agent ID 拒绝、重复 WSS 拒绝、只读任务回传、Ping/Pong 和无周期 JSON heartbeat；通过本地 TLS 测试服务，不连接真实 NAS。
+
+## T-037 第一批代码：Server 私网 WSS 主动拨号器（尚未接入页面生命周期）
+
+- 新增 `server/src/realtime/agent-dialer.ts`：仅在显式 `setActive(true)` 时为未撤销且已配置端点的 Agent 建立 WSS；对目标做私网 IP、端口、证书 SAN/有效期/指纹二次校验，使用 Server TLS 客户端身份并严格校验 Agent 服务端证书；禁止重定向，禁止同 Agent 重复拨号。
+- `setActive(false)` 会终止建立中与已建立的连接。**目前暂未接入 app.ts、未实现首页口令授权导航页与管理员页面的全局在线登记（T-040）**，因此不能声称运行态已经自动按页面连接。此增量只是 Server 主动拨号基础模块；后续还须替换旧 AgentHub 业务心跳和旧 /agent 入站路由，并完成真实 Go↔Node mTLS 联调。
