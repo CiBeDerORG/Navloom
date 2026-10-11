@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { DatabaseConnection } from "../db/client.js";
 import { Access, ApiFailure, AttemptLimiter } from "../security/access.js";
 import type { AgentHub } from "../realtime/agent-hub.js";
+import type { PagePresence } from "../realtime/page-presence.js";
 
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const tokenDigest = (token: string): string => createHash("sha256").update(token).digest("hex");
@@ -72,7 +73,7 @@ export function verifyAgentCredential(db: DatabaseConnection, agentId: string, c
   return timingSafeEqual(Buffer.from(row.hash, "hex"), Buffer.from(tokenDigest(credential), "hex"));
 }
 
-export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnection, access: Access, hub: AgentHub, serverClientCertificatePem?: string): void {
+export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnection, access: Access, hub: AgentHub, serverClientCertificatePem?: string, presence?: PagePresence): void {
   const pairLimiter = new AttemptLimiter(8);
   app.post("/api/v1/admin/agents/pair-tokens", async (request, reply) => {
     const admin = access.requireAdmin(request);
@@ -134,6 +135,9 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
       throw error;
     }
     pairLimiter.success(key);
+    // If a page is already online, schedule this newly paired Agent immediately.
+    // With zero pages, connectAgent is gated and never sends a network packet.
+    if (input.data.endpoint) presence?.agentPaired(agentId);
     reply.status(201);
     reply.header("Cache-Control", "no-store");
     return { agentId, credential, ...(input.data.endpoint ? { serverClientCertificatePem } : {}) };

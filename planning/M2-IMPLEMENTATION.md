@@ -124,3 +124,11 @@ npm run test:go
 
 - [GitHub Actions 38154719616](https://github.com/CiBeDerORG/Navloom/actions/runs/38154719616)：**4/4 通过**（Go Agent、Web + Server + SQLite、旧 Go→Node WSS 集成回归、Compose 启动）。新增 Go 被动 mTLS WSS 隔离测试覆盖证书校验、单连接、只读任务和 Ping/Pong；Server 主动拨号器的私网/无页面拒绝单测通过。
 - **不等于新架构端到端验收**：目前 Server 主动拨号器尚未接入全局页面在线机制，旧 WSS 入站/主动连接路径尚未清除；真实 Go 被动 Agent ↔ Node 主动 Server 双向 TLS 联调仍需执行。T-036～T-059 的 Codex 状态继续 NOT_RUN。
+
+## T-039/T-040 增量：全局页面在线与唯一 Ping/Pong 检测（尚未独立验收）
+
+- 新增 `0005_m2_page_presence.sql`，全局 `manual/auto` 和 `interval_ms` 设置写入 SQLite（默认手动、30 秒；自动 5～300 秒）。管理员 GET/PATCH `/api/v1/admin/agents/probe-settings`、POST `/api/v1/admin/agents/probe`；手动检测仅发送 WSS Ping，不会下发 Docker 能力任务。设置变更通过已认证页面 WS 广播至各浏览器。
+- `/api/v1/presence` 浏览器 WebSocket 必须具备有效首页或管理员 Cookie，并验证同源 Origin；Server 全局管理已登录页面集合，首个页面触发 Agent 主动拨号，最后一个页面离开时立即终止 Agent 连接、自动 Ping 和重连定时器；后台标签页仍计入。浏览器异常断开由 Server→浏览器 Ping/Pong 和定时鉴权检测处理；该通道与 Agent WSS 分离。
+- Server `AgentHub` 为反向会话新增仅 Ping/Pong 探测，Pong 不写 SQLite，手动模式无定时 Agent Ping；旧主动会话暂保持旧行为，避免在未完成新双端联调前破坏旧回归。反向 Agent 收到 hello 不再自动下发能力探测任务。Agent 掉线后只在页面在线期间指数退避重连；配对新 Agent 时仅在已有在线页面下触发连接。
+- Web 在已解锁导航页和已登录后台建立页面 WS，登录界面不登记，页面路由变化/注销时释放；后台「应用实例管理」新增自动/手动间隔设置与「检测连接」按钮。开发 Vite WS 代理已启用。
+- **限制**：旧 `/agent` Agent 主动接入和旧 Agent 无端点回退路径仍存在，故尚未全面达成「无人在线零 Agent 通信」；需先完成新 Go 被动 Agent ↔ Node 主动 Server 的双向 TLS 实机/隔离端到端联调，再移除旧路径并重做旧集成测试。新页面登记/探测也未经过 Codex 独立验收。

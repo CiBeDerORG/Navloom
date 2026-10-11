@@ -43,6 +43,6 @@ export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureC
   });
   registerAuth(app, db, access);
   registerNavigation(app, db, access);
-  registerAgentPairing(app, db, access, hub, agentClientCertificatePem);
+  registerAgentPairing(app, db, access, hub, agentClientCertificatePem, presence);
   if (presence) registerProbeSettings(app, access, presence);
 }

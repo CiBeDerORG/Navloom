@@ -47,6 +47,10 @@ export class PagePresence {
     return settings;
   }
 
+  agentPaired(agentId: string): void {
+    if (this.pages.size > 0) this.dialer.connectAgent(agentId);
+  }
+
   probeNow(): number {
     return this.pages.size > 0 ? this.hub.probeReverseAll() : 0;
   }
