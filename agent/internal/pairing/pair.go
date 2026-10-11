@@ -54,6 +54,9 @@ func Pair(ctx context.Context, cfg config.Config, token, version string) (Identi
 	if !secretPattern.MatchString(token) {
 		return Identity{}, errors.New("invalid pairing token format")
 	}
+	if !cfg.ReverseEndpointConfigured() {
+		return Identity{}, errors.New("reverse WSS endpoint and TLS identity are required for pairing")
+	}
 	target, _ := url.Parse(cfg.ServerURL)
 	if target.Scheme == "wss" {
 		target.Scheme = "https"

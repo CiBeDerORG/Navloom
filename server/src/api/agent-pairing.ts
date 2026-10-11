@@ -22,7 +22,7 @@ const pairRequest = z.object({
   version: z.string().trim().min(1).max(80),
   platform: z.string().trim().min(1).max(80),
   architecture: z.string().trim().min(1).max(80),
-  endpoint: endpointRequest.optional(),
+  endpoint: endpointRequest,
 }).strict();
 const renameRequest = z.object({ name: z.string().trim().min(1).max(80) }).strict();
 const idRequest = z.object({ id: z.string().uuid() });
@@ -39,17 +39,17 @@ export function privateHost(host: string): boolean {
   return false; // IP literal only: prevent DNS rebinding and public-network SSRF.
 }
 
-function validateEndpoint(input: z.infer<typeof endpointRequest> | undefined): {
+function validateEndpoint(input: z.infer<typeof endpointRequest>): {
   host: string; port: number; certificatePem: string; fingerprint: string;
-} | null {
-  if (!input) return null; // legacy registrations remain unconfigured until re-paired.
+} {
   if (!privateHost(input.host)) throw new ApiFailure(401, "PAIRING_REJECTED", "Agent 私网端点无效");
   let cert: X509Certificate;
   try { cert = new X509Certificate(input.certificatePem); }
   catch { throw new ApiFailure(401, "PAIRING_REJECTED", "Agent TLS 证书无效"); }
   const now = Date.now();
-  if (Date.parse(cert.validFrom) > now || Date.parse(cert.validTo) <= now ||
-      !cert.subjectAltName?.split(", ").includes("IP Address:" + input.host)) {
+  if (cert.ca || Date.parse(cert.validFrom) > now || Date.parse(cert.validTo) <= now ||
+      cert.checkIP(input.host) !== input.host ||
+      !cert.keyUsage?.some((usage) => usage === "TLS Web Server Authentication" || usage === "1.3.6.1.5.5.7.3.1")) {
     throw new ApiFailure(401, "PAIRING_REJECTED", "Agent TLS 证书地址或有效期无效");
   }
   return {
@@ -109,7 +109,7 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     const credential = newSecret();
     try {
       const endpoint = validateEndpoint(input.data.endpoint);
-      if (endpoint && !serverClientCertificatePem) {
+      if (!serverClientCertificatePem) {
         throw new ApiFailure(503, "PAIRING_NOT_READY", "Server 尚未配置 Agent 客户端 TLS 身份");
       }
       db.sqlite.transaction(() => {
@@ -120,7 +120,7 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
         db.sqlite.prepare(
           "INSERT INTO agents (id, name, credential_hash, version, platform, architecture, registered_at, endpoint_host, endpoint_port, tls_cert_pem, tls_cert_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ).run(agentId, input.data.name, tokenDigest(credential), input.data.version, input.data.platform, input.data.architecture, now,
-          endpoint?.host ?? null, endpoint?.port ?? null, endpoint?.certificatePem ?? null, endpoint?.fingerprint ?? null);
+          endpoint.host, endpoint.port, endpoint.certificatePem, endpoint.fingerprint);
         const used = db.sqlite.prepare(
           "UPDATE agent_pair_tokens SET used_at = ?, agent_id = ? WHERE id = ? AND used_at IS NULL",
         ).run(now, agentId, token.id);
@@ -137,10 +137,10 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     pairLimiter.success(key);
     // If a page is already online, schedule this newly paired Agent immediately.
     // With zero pages, connectAgent is gated and never sends a network packet.
-    if (input.data.endpoint) presence?.agentPaired(agentId);
+    presence?.agentPaired(agentId);
     reply.status(201);
     reply.header("Cache-Control", "no-store");
-    return { agentId, credential, ...(input.data.endpoint ? { serverClientCertificatePem } : {}) };
+    return { agentId, credential, serverClientCertificatePem };
   });
 
   app.get("/api/v1/admin/agent-tasks/:id", async (request) => {
