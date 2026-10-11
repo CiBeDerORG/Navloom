@@ -31,13 +31,9 @@ const containerId = z.string().regex(/^[a-f0-9]{12,64}$/);
 export const AgentCommandSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("capability_probe"), arguments: z.object({}).strict() }).strict(),
   z.object({ operation: z.literal("inventory_refresh"), arguments: z.object({}).strict() }).strict(),
-  ...(["container_start", "container_stop", "container_restart"] as const).map((operation) =>
-    z.object({ operation: z.literal(operation), arguments: z.object({ container_id: containerId }).strict() }).strict()
-  ) as [
-    z.ZodObject<{ operation: z.ZodLiteral<"container_start">; arguments: z.ZodObject<{ container_id: typeof containerId }> }>,
-    z.ZodObject<{ operation: z.ZodLiteral<"container_stop">; arguments: z.ZodObject<{ container_id: typeof containerId }> }>,
-    z.ZodObject<{ operation: z.ZodLiteral<"container_restart">; arguments: z.ZodObject<{ container_id: typeof containerId }> }>,
-  ],
+  z.object({ operation: z.literal("container_start"), arguments: z.object({ container_id: containerId }).strict() }).strict(),
+  z.object({ operation: z.literal("container_stop"), arguments: z.object({ container_id: containerId }).strict() }).strict(),
+  z.object({ operation: z.literal("container_restart"), arguments: z.object({ container_id: containerId }).strict() }).strict(),
   z.object({
     operation: z.literal("compose_deploy"),
     arguments: z.object({
