@@ -70,7 +70,7 @@ docker compose -f compose.dev.yml up
 
 管理员登录「应用实例管理」，点击「生成一次性接入令牌」；该令牌 10 分钟内有效，只能使用一次。Go Agent 使用 `-pair` 从标准输入读取令牌，成功后在设备本地私有文件中保存独立身份凭据。具体命令见 [agent/README.md](./agent/README.md)。
 
-当前已提交 WSS 认证、心跳与自动重连；配对后还需在设备上**正常启动 Agent** 才会显示在线。Docker 容器池和操作仍未完成；不要将「在线」当成「Docker 已可用」。
+当前已提交 WSS 认证、心跳、自动重连及只读 Docker/Compose 能力探测；配对后还需正常启动 Agent 才会显示在线。设备详情显示能力与不可用原因，可手动刷新。容器池和实际容器操作仍未实现；「在线」不代表「Docker 已可用」。
 
 ### Go Agent
 
