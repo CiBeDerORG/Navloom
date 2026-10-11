@@ -20,7 +20,6 @@ export function buildApp(
 
   if (dependencies) {
     const hub = new AgentHub(dependencies.database, {
-      heartbeatTimeoutMs: dependencies.agentHeartbeatTimeoutMs ?? 45_000,
       sweepIntervalMs: dependencies.agentSweepIntervalMs ?? 5_000,
       taskTimeoutMs: dependencies.agentTaskTimeoutMs ?? 15_000,
     });
