@@ -18,6 +18,7 @@ const pairRequest = z.object({
 }).strict();
 const renameRequest = z.object({ name: z.string().trim().min(1).max(80) }).strict();
 const idRequest = z.object({ id: z.string().uuid() });
+const emptyRequest = z.object({}).strict();
 
 function audit(db: DatabaseConnection, event: string, agentId: string | null = null): void {
   db.sqlite.prepare("INSERT INTO agent_audit_events (id, agent_id, event, created_at) VALUES (?, ?, ?, ?)").run(
@@ -96,6 +97,25 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     return { agentId, credential };
   });
 
+  app.get("/api/v1/admin/agent-tasks/:id", async (request) => {
+    access.requireAdmin(request);
+    const id = idRequest.safeParse(request.params);
+    if (!id.success) throw new ApiFailure(400, "INVALID_INPUT", "任务 ID 无效");
+    const task = hub.tasks.getTask(id.data.id);
+    if (!task) throw new ApiFailure(404, "TASK_NOT_FOUND", "任务不存在");
+    return { task };
+  });
+
+  app.post("/api/v1/admin/agents/:id/capability-probe", async (request, reply) => {
+    access.requireAdmin(request);
+    const id = idRequest.safeParse(request.params);
+    const body = emptyRequest.safeParse(request.body);
+    if (!id.success || !body.success) throw new ApiFailure(400, "INVALID_INPUT", "设备 ID 或参数无效");
+    const taskId = hub.requestCapabilityProbe(id.data.id);
+    reply.status(202);
+    return { taskId };
+  });
+
   app.get("/api/v1/admin/agents", async (request) => {
     access.requireAdmin(request);
     const agents = db.sqlite.prepare(
@@ -104,7 +124,11 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
       id: string; name: string; version: string | null; platform: string | null;
       architecture: string | null; registeredAt: number | null; lastSeenAt: number | null; revokedAt: number | null;
     }>;
-    return { agents: agents.map((agent) => ({ ...agent, status: agent.revokedAt === null ? (hub.isOnline(agent.id) ? "online" : "offline") : "revoked" })) };
+    return { agents: agents.map((agent) => ({
+      ...agent,
+      status: agent.revokedAt === null ? (hub.isOnline(agent.id) ? "online" : "offline") : "revoked",
+      ...hub.tasks.getCapabilities(agent.id),
+    })) };
   });
 
   app.get("/api/v1/admin/agents/:id", async (request) => {
@@ -118,7 +142,11 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
       architecture: string | null; registeredAt: number | null; lastSeenAt: number | null; revokedAt: number | null;
     } | undefined;
     if (!agent) throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在");
-    return { agent: { ...agent, status: agent.revokedAt !== null ? "revoked" : hub.isOnline(agent.id) ? "online" : "offline" } };
+    return { agent: {
+      ...agent,
+      status: agent.revokedAt !== null ? "revoked" : hub.isOnline(agent.id) ? "online" : "offline",
+      ...hub.tasks.getCapabilities(agent.id),
+    } };
   });
 
   app.patch("/api/v1/admin/agents/:id", async (request) => {

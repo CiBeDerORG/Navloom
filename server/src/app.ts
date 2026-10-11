@@ -7,7 +7,7 @@ import { AgentHub, registerAgentTransport } from "./realtime/agent-hub.js";
 
 export function buildApp(
   options: FastifyServerOptions = {},
-  dependencies?: { database: DatabaseConnection; secureCookies?: boolean; agentHeartbeatTimeoutMs?: number; agentSweepIntervalMs?: number },
+  dependencies?: { database: DatabaseConnection; secureCookies?: boolean; agentHeartbeatTimeoutMs?: number; agentSweepIntervalMs?: number; agentTaskTimeoutMs?: number },
 ) {
   const app = Fastify({ bodyLimit: 64 * 1024, ...options });
 
@@ -19,6 +19,7 @@ export function buildApp(
     const hub = new AgentHub(dependencies.database, {
       heartbeatTimeoutMs: dependencies.agentHeartbeatTimeoutMs ?? 45_000,
       sweepIntervalMs: dependencies.agentSweepIntervalMs ?? 5_000,
+      taskTimeoutMs: dependencies.agentTaskTimeoutMs ?? 15_000,
     });
     registerM1(app, dependencies.database, dependencies.secureCookies ?? false, hub);
     registerAgentTransport(app, dependencies.database, hub, dependencies.secureCookies ?? false);

@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import websocket from "@fastify/websocket";
 import { AgentMessageSchema, AGENT_PROTOCOL_VERSION } from "@navloom/contracts";
+import { AgentTasks } from "./agent-tasks.js";
 import type { FastifyInstance } from "fastify";
 import { WebSocket } from "ws";
 import type { DatabaseConnection } from "../db/client.js";
@@ -23,9 +24,11 @@ export class AgentHub {
   private readonly sessions = new Map<string, Session>();
   private readonly sweep: ReturnType<typeof setInterval>;
   private readonly heartbeatTimeoutMs: number;
+  readonly tasks: AgentTasks;
 
-  constructor(private readonly db: DatabaseConnection, options: { heartbeatTimeoutMs: number; sweepIntervalMs: number }) {
+  constructor(private readonly db: DatabaseConnection, options: { heartbeatTimeoutMs: number; sweepIntervalMs: number; taskTimeoutMs?: number }) {
     this.heartbeatTimeoutMs = options.heartbeatTimeoutMs;
+    this.tasks = new AgentTasks(db, options.taskTimeoutMs);
     this.sweep = setInterval(() => this.expire(), options.sweepIntervalMs);
     this.sweep.unref();
   }
@@ -34,6 +37,16 @@ export class AgentHub {
     const session = this.sessions.get(agentId);
     return Boolean(session && session.socket.readyState === WebSocket.OPEN &&
       Date.now() - session.lastCommunication <= this.heartbeatTimeoutMs);
+  }
+
+  requestCapabilityProbe(agentId: string): string {
+    const session = this.sessions.get(agentId);
+    if (!session || !session.helloReceived || !this.isOnline(agentId)) {
+      throw new ApiFailure(409, "AGENT_OFFLINE", "设备离线或尚未完成协议握手");
+    }
+    const active = this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId);
+    if (!active) throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在或已撤销");
+    return this.tasks.dispatchCapabilityProbe(agentId, session.socket);
   }
 
   connect(agentId: string, socket: WebSocket): void {
@@ -57,6 +70,7 @@ export class AgentHub {
     const session = this.sessions.get(agentId);
     if (!session) return;
     this.sessions.delete(agentId);
+    this.tasks.markAgentUnknown(agentId);
     if (session.socket.readyState === WebSocket.OPEN) session.socket.close(code, reason);
     else session.socket.terminate();
   }
@@ -67,7 +81,10 @@ export class AgentHub {
   }
 
   private detach(session: Session): void {
-    if (this.sessions.get(session.agentId) === session) this.sessions.delete(session.agentId);
+    if (this.sessions.get(session.agentId) === session) {
+      this.sessions.delete(session.agentId);
+      this.tasks.markAgentUnknown(session.agentId);
+    }
   }
 
   private touch(session: Session, version?: string): void {
@@ -93,9 +110,9 @@ export class AgentHub {
     if (!parsed.success) { session.socket.close(1008, "invalid protocol message"); return; }
     const message = parsed.data;
     if (message.agent_id !== session.agentId ||
-        (message.type !== "hello" && message.type !== "heartbeat") ||
+        !["hello", "heartbeat", "task_result"].includes(message.type) ||
         (message.type === "hello" && session.helloReceived) ||
-        (message.type === "heartbeat" && !session.helloReceived) ||
+        (message.type !== "hello" && !session.helloReceived) ||
         session.seenMessages.has(message.message_id)) {
       session.socket.close(1008, "message not allowed");
       return;
@@ -108,12 +125,22 @@ export class AgentHub {
     if (message.type === "hello") {
       session.helloReceived = true;
       this.touch(session, message.payload.version);
+      // Safe read-only probe on first hello. Docker actions remain disabled.
+      try { this.tasks.dispatchCapabilityProbe(session.agentId, session.socket); }
+      catch { /* A delivery failure leaves an unknown task, never a false failure. */ }
+    } else if (message.type === "task_result") {
+      if (!this.tasks.acceptResult(session.agentId, message)) {
+        session.socket.close(1008, "task result rejected");
+        return;
+      }
+      this.touch(session);
     } else {
       this.touch(session);
     }
   }
 
   private expire(): void {
+    this.tasks.expire();
     for (const [id, session] of this.sessions) {
       if (Date.now() - session.lastCommunication > this.heartbeatTimeoutMs) {
         this.disconnect(id, 4000, "heartbeat timeout");
