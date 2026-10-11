@@ -24,24 +24,36 @@
 - **验收纪律**：本批实现不等于通过验收；全部步骤只更新 [原 Codex 统一回归文件](./M1-CODEX-REGRESSION.md) 的 C/D 组，保留 Codex `NOT_RUN` 直至实际测试。
 - [CI 38144150805](https://github.com/CiBeDerORG/Navloom/actions/runs/38144150805) **4/4 作业通过**，新增 `scripts/smoke-m2.mjs` 在隔离环境启动两台真实 Go Agent ↔ Node WSS，验证在线、断线重连、持久身份、撤销与隔离；这不等于 Codex 独立验收。
 
+## 第三批交付：T-044～T-047 安全任务通道与能力探测（待 Codex）
+
+- 新增迁移 `0003_m2_agent_tasks.sql`：`agent_tasks` 按设备记录任务 ID、发送时间、deadline、结果和状态；`agent_capabilities` 持久化最近一次 Docker/Compose 能力探测及时间，旧 M1/M2 表不被覆盖。
+- Server 仅可向已认证且完成 `hello` 的指定 Agent 下发**只读** `capability_probe`。管理员可调用 `POST /api/v1/admin/agents/:id/capability-probe` 和 `GET /api/v1/admin/agent-tasks/:id`；所有接口仍受管理员会话、CSRF/Origin 保护。Agent 完成 `hello` 时自动执行一次只读探测。
+- 任务 `task_id` 与 `agent_id` 严格匹配；重复结果幂等；断线/超时/Server 重启时将未决任务标为 `unknown` 而**非 `failed`**，允许同设备迟到结果关联，但不自动重放可能有副作用的命令。
+- 共享协议明确 `capability_probe`、`inventory_refresh`、`container_start/stop/restart`、`compose_deploy` 的参数白名单；**当前只有 `capability_probe` 可执行**，其他操作尚无执行器/管理 API。Go 拒绝未知、伪造或带多余字段的任务，不运行任意 Shell；Server 对拒绝消息写无敏感内容的审计事件。
+- Go Agent 只读探测本地 Unix Socket 的 Docker API `/_ping` 与 `/version`，以及固定参数的 `docker compose version --short`；拒绝远程 `DOCKER_HOST`，返回 `socket_missing`、`permission_denied` 等明确原因，绝不以在线代替 Docker 可用。
+- 管理员「应用实例管理」显示 Docker/Compose 能力、最近探测时间、不可部署原因和手动刷新按钮。即使基础能力存在，**部署入口仍未开放**，容器不会自动创建导航卡片。
+- 自动化测试：Node 双 Agent 定向任务、错误身份、重复/迟到结果、超时未知状态、拒绝审计；Go 严格任务解析、隔离 Unix Socket/Compose CLI stub；真实两台 Go 进程↔Node Server 能力探测及持久化回归。
+- [CI 38144954055](https://github.com/CiBeDerORG/Navloom/actions/runs/38144954055) **4/4 通过**；后续安全审计与超时用例已追加，最新 CI 仍须以 GitHub Actions 结果为准。
+- **Codex 验收只写入 [原统一文件](./M1-CODEX-REGRESSION.md) D5～D8**，不可凭代码或 CI 勾选 T-044～T-047；T-045/T-047 的 Docker 执行子项仍需 T-055，T-046 真实 Docker 环境须明确授权。
+
 ## 尚未完成与状态纪律
 
 - **T-034**：身份持久化和唯一约束已实现；WSS 重连代码已具备，仍须 Codex 双端联调同一设备 ID 后才能完全验收。
 - **T-035**：签发/消费/限流/审计路径已实现，CI 已通过，**已按任务原文验收**。
 - **T-036**：Go 配对和安全保存已实现；WSS 重连与未配对拒绝已具备代码，待 Codex 端到端验证。
 - **T-041/T-042/T-043**：设备 API/UI 和数据库撤销已开始；在线状态与撤销主动断线已具备代码；T-042 容器池筛选仍依赖 T-053，完整验收待 Codex。
-- **T-037～T-040**：WSS、Go 重连、心跳和协议基础已提交，自动化 CI 已通过，等待 Codex 独立联调；T-039 任务消息关联仍依赖 T-044。**T-044～T-059**：任务路由、Docker 发现、容器池、实例与操作尚未实现，不得标记通过。
+- **T-037～T-040**：WSS、Go 重连、心跳和协议基础已提交，自动化 CI 已通过，等待 Codex 独立联调；T-039 任务消息关联仍依赖 T-044。**T-044～T-047**：安全任务、命令白名单、只读 Docker/Compose 探测和双 Agent 隔离代码已提交，Codex 未独立验收；**T-048～T-059**：容器发现、容器池、实例与操作尚未实现，不得标记通过。
 - Q-09「首次配对流程」仍是**建议**的一次性令牌方案；本轮作为可回滚的实现基线，不能把它写成用户已确认决策。
 
 ## Codex 验收统一交接
 
-**所有 M2 验收任务统一记录到原先交给 Codex 的 [M1-CODEX-REGRESSION.md](./M1-CODEX-REGRESSION.md)**（C 组当前代码 6 项，D 组后续 20 项）。该文件同时保留 M1 的 A/B 组回归与统一结果表。此处仅记录实施进度与 CI 证据；不要再另建一份 M2 Codex 验收清单。任务勾选状态仍以 [Agent 任务](./tasks/04-agent.md) 和 [容器池任务](./tasks/05-inventory.md) 为准。
+**所有 M2 验收任务统一记录到原先交给 Codex 的 [M1-CODEX-REGRESSION.md](./M1-CODEX-REGRESSION.md)**（C 组当前代码 6 项，D 组 8 项已提交安全代码 + 12 项尚未实现）。该文件同时保留 M1 的 A/B 组回归与统一结果表。此处仅记录实施进度与 CI 证据；不要再另建一份 M2 Codex 验收清单。任务勾选状态仍以 [Agent 任务](./tasks/04-agent.md) 和 [容器池任务](./tasks/05-inventory.md) 为准。
 
 ## 下一批顺序
 
 1. Codex 在统一验收文件中验证 T-034/T-036/T-037～T-043 的双 Agent WSS 联调，记录证据。
-2. 实现 T-044～T-047 安全任务路由、命令白名单与双 Agent 隔离。
-3. 在授权的测试 Docker 环境中实现 T-048～T-059 容器池、事件、实例和受控操作。
+2. Codex 按 D5～D8 验证 T-044～T-047 已提交的安全子集，记录只读探测与双 Agent 结果。
+3. 在**明确授权**的测试 Docker 环境中实现 T-048～T-059 容器池、事件、实例和受控操作，补齐 T-045/T-047 的完整验收。
 4. 解除 M1 T-028～T-031/T-033 的容器关联验收阻塞。
 
 ## 开发验证
