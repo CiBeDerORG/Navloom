@@ -1,0 +1,36 @@
+{
+  "name": "navloom",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Navigation-first self-hosted app management",
+  "workspaces": ["packages/*", "server", "web"],
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "build:contracts": "npm run build -w @navloom/contracts",
+    "build:server": "npm run build -w @navloom/server",
+    "build:web": "npm run build -w @navloom/web",
+    "build": "npm run build:contracts && npm run build:server && npm run build:web",
+    "dev": "npm run build:contracts && concurrently -k -n server,web \"npm run dev -w @navloom/server\" \"npm run dev -w @navloom/web\"",
+    "typecheck": "npm run build:contracts && npm run typecheck -w @navloom/server && npm run typecheck -w @navloom/web",
+    "lint:ts": "eslint . --max-warnings=0",
+    "lint:go": "cd agent && test -z \"$(gofmt -l .)\"",
+    "format:check": "prettier --check .",
+    "test:server": "npm run build:contracts && npm run test -w @navloom/server",
+    "test:go": "cd agent && go test ./...",
+    "build:agent": "cd agent && go build -o bin/navloom-agent ./cmd/navloom-agent",
+    "db:migrate": "npm run db:migrate -w @navloom/server"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.25.1",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.25.1",
+    "eslint-plugin-vue": "^9.33.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.30.1"
+  }
+}

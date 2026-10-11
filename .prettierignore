@@ -1,0 +1,7 @@
+node_modules
+dist
+coverage
+server/data
+package-lock.json
+agent/bin
+planning
