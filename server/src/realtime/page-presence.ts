@@ -24,6 +24,7 @@ export class PagePresence {
     private readonly db: DatabaseConnection,
     private readonly dialer: ReverseAgentDialer,
     private readonly hub: AgentHub,
+    private readonly options: { sweepIntervalMs?: number; pongTimeoutMs?: number } = {},
   ) {}
 
   get activePages(): number { return this.pages.size; }
@@ -74,7 +75,7 @@ export class PagePresence {
     socket.send(JSON.stringify({ type: "probe_settings", settings: this.settings() }));
     if (first) {
       this.dialer.setActive(true);
-      this.sweep = setInterval(() => this.verifyPages(), 15_000);
+      this.sweep = setInterval(() => this.verifyPages(), this.options.sweepIntervalMs ?? 15_000);
       this.sweep.unref();
       this.resetAutoProbe();
     }
@@ -95,7 +96,7 @@ export class PagePresence {
     for (const page of [...this.pages]) {
       if (page.socket.readyState !== WebSocket.OPEN ||
           (!page.access.admin(page.request) && !page.access.home(page.request)) ||
-          (page.awaitingPong && now - page.lastPong > 45_000)) {
+          (page.awaitingPong && now - page.lastPong > (this.options.pongTimeoutMs ?? 45_000))) {
         this.remove(page);
         page.socket.terminate();
         continue;
