@@ -114,9 +114,15 @@ try {
   };
   execFileSync("npm", ["run", "db:migrate"], { env, stdio: "pipe" });
   execFileSync("npm", ["run", "admin:init", "-w", "@navloom/server"], { env, stdio: "pipe" });
-  const server = spawn("node", ["server/dist/index.js"], { env, stdio: "ignore" });
+  const server = spawn("node", ["server/dist/index.js"], { env, stdio: ["ignore", "ignore", "pipe"] });
+  let serverErrors = "";
+  server.stderr.on("data", (data) => { serverErrors += String(data).slice(-2000); });
   children.push(server);
-  await until(async () => (await call("/api/v1/system/status")).payload.status === "ok");
+  try {
+    await until(async () => (await call("/api/v1/system/status")).payload.status === "ok");
+  } catch (error) {
+    throw new Error("Server startup failed: " + serverErrors.slice(-1500), { cause: error });
+  }
   const login = await call("/api/v1/auth/admin/login", "POST", { username: "admin", password });
   const cookie = login.cookie;
   const home = await call("/api/v1/auth/home/unlock", "POST", { passphrase: homePassphrase });
