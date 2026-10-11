@@ -139,66 +139,108 @@ try {
 
   const binary = resolve(temp, "navloom-agent");
   execFileSync("go", ["build", "-o", binary, "./cmd/navloom-agent"], { cwd: resolve("agent"), stdio: "pipe" });
-  const cfg = join(temp, "agent-config.json");
-  const tokenFile = join(temp, "agent-identity.json");
-  writeFileSync(cfg, JSON.stringify({
-    server_url: "ws://127.0.0.1:" + serverPort + "/agent",
-    allow_insecure_dev: true,
-    agent_name: "isolated-reverse-nas",
-    token_file: tokenFile,
-    endpoint_host: host,
-    endpoint_port: agentPort,
-    tls_cert_file: join(temp, "agent.pem"),
-    tls_key_file: join(temp, "agent.key"),
-  }));
-  execFileSync(binary, ["-config", cfg, "-init-tls"], { stdio: "pipe" });
-  const issued = await call("/api/v1/admin/agents/pair-tokens", "POST", {}, cookie);
-  const paired = spawnSync(binary, ["-config", cfg, "-pair"], {
-    input: issued.payload.token + "\n", encoding: "utf8",
-  });
-  assert.equal(paired.status, 0, "Agent pairing failed: " + (paired.stderr ?? "").slice(-500));
-  const identity = JSON.parse(readFileSync(tokenFile, "utf8"));
-  assert.ok(identity.server_client_certificate_pem?.includes("BEGIN CERTIFICATE"));
-  assert.equal(identity.agent_id.length, 36);
-
-  const settings = () => call("/api/v1/admin/agents/probe-settings", "GET", undefined, cookie);
   const devices = async () => (await call("/api/v1/admin/agents", "GET", undefined, cookie)).payload.agents;
-  assert.equal((await settings()).payload.activePages, 0);
-  assert.equal((await devices())[0].status, "paused");
-  // Start the passive Agent without any authenticated page: it must not dial Server.
-  const agent = spawn(binary, ["-config", cfg], { stdio: "ignore" });
-  children.push(agent);
+  const settings = () => call("/api/v1/admin/agents/probe-settings", "GET", undefined, cookie);
+
+  async function registerAgent(name) {
+    const agentPort = await unusedPort(host);
+    const cfg = join(temp, name + "-config.json");
+    const identityFile = join(temp, name + "-identity.json");
+    writeFileSync(cfg, JSON.stringify({
+      server_url: "ws://127.0.0.1:" + serverPort + "/agent",
+      allow_insecure_dev: true,
+      agent_name: name,
+      token_file: identityFile,
+      endpoint_host: host,
+      endpoint_port: agentPort,
+      tls_cert_file: join(temp, name + "-agent.pem"),
+      tls_key_file: join(temp, name + "-agent.key"),
+    }));
+    execFileSync(binary, ["-config", cfg, "-init-tls"], { stdio: "pipe" });
+    const issued = await call("/api/v1/admin/agents/pair-tokens", "POST", {}, cookie);
+    const paired = spawnSync(binary, ["-config", cfg, "-pair"], {
+      input: issued.payload.token + "\n", encoding: "utf8",
+    });
+    assert.equal(paired.status, 0, name + " pairing failed: " + (paired.stderr ?? "").slice(-500));
+    const identity = JSON.parse(readFileSync(identityFile, "utf8"));
+    assert.ok(identity.server_client_certificate_pem?.includes("BEGIN CERTIFICATE"));
+    return { name, cfg, id: identity.agent_id };
+  }
+
+  function startAgent(agent) {
+    const child = spawn(binary, ["-config", agent.cfg], { stdio: "ignore" });
+    children.push(child);
+    return child;
+  }
+
+  const first = await registerAgent("nas-a");
+  const second = await registerAgent("nas-b");
+  assert.notEqual(first.id, second.id);
+  const noLegacyRoute = await fetch(base + "/agent");
+  assert.equal(noLegacyRoute.status, 404, "Server must not expose legacy inbound Agent route");
+
+  // Both real Go Agents listen passively, without ever initiating an outbound WSS.
+  let processA = startAgent(first);
+  let processB = startAgent(second);
   await delay(600);
   assert.equal((await settings()).payload.activePages, 0);
-  assert.equal((await devices())[0].lastSeenAt, null);
+  assert.deepEqual((await devices()).map((device) => device.status), ["paused", "paused"]);
+  assert.ok((await devices()).every((device) => device.lastSeenAt === null));
 
-  const adminPage = await page(cookie);
-  await until(async () => (await devices())[0].status === "online");
-  const firstSeen = (await devices())[0].lastSeenAt;
-  assert.ok(firstSeen > 0);
-  const checked = await call("/api/v1/admin/agents/probe", "POST", {}, cookie);
-  assert.equal(checked.payload.sent, 1);
-  await delay(200);
-  assert.equal((await devices())[0].lastSeenAt, firstSeen, "Pong must not write SQLite last_seen_at");
-
-  const task = await call("/api/v1/admin/agents/" + identity.agent_id + "/capability-probe", "POST", {}, cookie);
-  await until(async () => (await call("/api/v1/admin/agent-tasks/" + task.payload.taskId, "GET", undefined, cookie)).payload.task.status === "succeeded");
-  assert.ok((await devices())[0].capabilities);
-
+  // An ordinary homepage-cookie browser, with no admin page open, activates both Agents.
   const homePage = await page(homeCookie);
+  await until(async () => (await devices()).filter((device) => device.status === "online").length === 2);
+  const adminPage = await page(cookie);
   await until(async () => (await settings()).payload.activePages === 2);
+  const beforePing = new Map((await devices()).map((device) => [device.id, device.lastSeenAt]));
+  const ping = await call("/api/v1/admin/agents/probe", "POST", {}, cookie);
+  assert.equal(ping.payload.sent, 2, "one global Ping per connected Agent");
+  await delay(200);
+  for (const device of await devices()) {
+    assert.equal(device.lastSeenAt, beforePing.get(device.id), "Pong never updates last_seen_at");
+    assert.equal(device.capabilities, null, "no implicit Docker task on hello");
+  }
+
+  const probe = await call("/api/v1/admin/agents/" + first.id + "/capability-probe", "POST", {}, cookie);
+  await until(async () =>
+    (await call("/api/v1/admin/agent-tasks/" + probe.payload.taskId, "GET", undefined, cookie)).payload.task.status === "succeeded");
+  const afterTask = await devices();
+  assert.ok(afterTask.find((device) => device.id === first.id)?.capabilities);
+  assert.equal(afterTask.find((device) => device.id === second.id)?.capabilities, null,
+    "Agent A task must not leak to Agent B");
+
+  // Stop and restart one passive Agent. The other one must remain connected.
+  await stop(processB);
+  await until(async () => (await devices()).find((device) => device.id === second.id)?.status === "offline");
+  assert.equal((await devices()).find((device) => device.id === first.id)?.status, "online");
+  processB = startAgent(second);
+  await until(async () => (await devices()).find((device) => device.id === second.id)?.status === "online");
+
+  // Revoke Agent A while the browser remains open: no automatic reconnect allowed.
+  await call("/api/v1/admin/agents/" + first.id + "/revoke", "POST", {}, cookie);
+  await until(async () => (await devices()).find((device) => device.id === first.id)?.status === "revoked");
+  assert.equal((await devices()).find((device) => device.id === second.id)?.status, "online");
+  await stop(processA);
+
+  // Close admin tab; the home-only tab must keep Agent B connected.
   await closePage(adminPage);
   await until(async () => (await settings()).payload.activePages === 1);
-  assert.equal((await devices())[0].status, "online", "other home page must keep shared Agent connection");
+  assert.equal((await devices()).find((device) => device.id === second.id)?.status, "online");
   await closePage(homePage);
   await until(async () => (await settings()).payload.activePages === 0);
-  const pausedSeen = (await devices())[0].lastSeenAt;
-  await delay(600);
-  assert.equal((await devices())[0].lastSeenAt, pausedSeen, "no page must not write heartbeat");
-  const reopened = await page(cookie);
-  await until(async () => (await devices())[0].status === "online");
+  const paused = await devices();
+  assert.equal(paused.find((device) => device.id === second.id)?.status, "paused");
+  const lastSeen = paused.find((device) => device.id === second.id)?.lastSeenAt;
+  await delay(700);
+  assert.equal((await devices()).find((device) => device.id === second.id)?.lastSeenAt, lastSeen);
+
+  // A single ordinary navigation page reconnects only the still-authorized Agent.
+  const reopened = await page(homeCookie);
+  await until(async () => (await devices()).find((device) => device.id === second.id)?.status === "online");
+  assert.equal((await devices()).find((device) => device.id === first.id)?.status, "revoked");
   await closePage(reopened);
-  console.log("M2 reverse Go↔Node mTLS WSS PASS: private Agent, on-demand pages, Ping/Pong, tasks, shared tabs, zero-page idle");
+  await stop(processB);
+  console.log("M2 reverse WSS v2 PASS: 2 passive Go Agents, no legacy inbound route, home-only activation, mTLS, global Ping, isolated tasks, restart, revoke, zero-page idle");
 } finally {
   for (const child of children.reverse()) await stop(child);
   rmSync(temp, { recursive: true, force: true });
