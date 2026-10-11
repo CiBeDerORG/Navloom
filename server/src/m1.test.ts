@@ -94,3 +94,43 @@ test("M1: navigation is independent, ordered and rejects unsafe URLs", async (t)
   assert.equal((await app.inject({ method: "DELETE", url: route + "/admin/navigation/cards/" + firstId, headers: { ...csrf, cookie } })).statusCode, 200);
   assert.equal((await app.inject({ method: "GET", url: route + "/admin/navigation", headers: { cookie } })).json().cards.length, 1);
 });
+
+test("M1: changing both passwords revokes existing cookies and requires new credentials", async (t) => {
+  const db = openDatabase(":memory:");
+  migrate(db.orm, { migrationsFolder: resolve(process.cwd(), "drizzle") });
+  const adminId = randomUUID();
+  db.sqlite.prepare("INSERT INTO admin_users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)").run(adminId, "admin", await hashPassword("initial-admin-password"), Date.now());
+  db.sqlite.prepare("INSERT INTO home_access_settings (id, password_hash, credential_version, updated_at) VALUES ('global', ?, 1, ?)").run(await hashPassword("initial-home"), Date.now());
+  const app = buildApp({ logger: false }, { database: db });
+  t.after(async () => { await app.close(); db.close(); });
+
+  const homeLogin = await app.inject({ method: "POST", url: route + "/auth/home/unlock", headers: json, payload: { passphrase: "initial-home" } });
+  const homeCookie = homeLogin.headers["set-cookie"] as string;
+  assert.equal(homeLogin.statusCode, 200);
+  const adminLogin = await app.inject({ method: "POST", url: route + "/auth/admin/login", headers: json, payload: { username: "admin", password: "initial-admin-password" } });
+  const adminCookie = adminLogin.headers["set-cookie"] as string;
+  assert.equal(adminLogin.statusCode, 200);
+
+  const updateHome = await app.inject({ method: "PATCH", url: route + "/admin/settings/home-passphrase", headers: { ...json, cookie: adminCookie }, payload: { passphrase: "new-home-passphrase" } });
+  assert.equal(updateHome.statusCode, 200);
+  assert.equal((await app.inject({ method: "GET", url: route + "/home/navigation", headers: { cookie: homeCookie } })).statusCode, 401);
+  assert.equal((await app.inject({ method: "POST", url: route + "/auth/home/unlock", headers: json, payload: { passphrase: "initial-home" } })).statusCode, 401);
+  const newHome = await app.inject({ method: "POST", url: route + "/auth/home/unlock", headers: json, payload: { passphrase: "new-home-passphrase" } });
+  assert.equal(newHome.statusCode, 200);
+  const newHomeCookie = newHome.headers["set-cookie"] as string;
+
+  const changeAdmin = await app.inject({ method: "PATCH", url: route + "/admin/settings/password", headers: { ...json, cookie: adminCookie }, payload: { currentPassword: "initial-admin-password", newPassword: "new-admin-password-123" } });
+  assert.equal(changeAdmin.statusCode, 200);
+  assert.equal((await app.inject({ method: "GET", url: route + "/admin/navigation", headers: { cookie: adminCookie } })).statusCode, 401);
+  assert.equal((await app.inject({ method: "POST", url: route + "/auth/admin/login", headers: json, payload: { username: "admin", password: "initial-admin-password" } })).statusCode, 401);
+  const newAdmin = await app.inject({ method: "POST", url: route + "/auth/admin/login", headers: json, payload: { username: "admin", password: "new-admin-password-123" } });
+  assert.equal(newAdmin.statusCode, 200);
+  assert.equal((await app.inject({ method: "GET", url: route + "/home/navigation", headers: { cookie: newHomeCookie } })).statusCode, 200);
+  assert.equal((await app.inject({ method: "GET", url: route + "/admin/navigation", headers: { cookie: newAdmin.headers["set-cookie"] as string } })).statusCode, 200);
+
+  // Expired tokens are rejected even when the browser still sends the cookie.
+  db.sqlite.prepare("UPDATE home_credentials SET expires_at = 0").run();
+  assert.equal((await app.inject({ method: "GET", url: route + "/home/navigation", headers: { cookie: newHomeCookie } })).statusCode, 401);
+  const hash = db.sqlite.prepare("SELECT password_hash AS hash FROM home_access_settings WHERE id = 'global'").get() as { hash: string };
+  assert.equal(hash.hash.includes("new-home-passphrase"), false);
+});
