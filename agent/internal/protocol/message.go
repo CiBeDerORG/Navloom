@@ -92,3 +92,22 @@ func strictJSON(data []byte, target any) error {
 	}
 	return nil
 }
+
+func NewHello(agentID, version string) (Message, error) {
+	if version == "" {
+		return Message{}, errors.New("Agent version is required")
+	}
+	message, err := NewHeartbeat(agentID, 0)
+	if err != nil {
+		return Message{}, err
+	}
+	payload, err := json.Marshal(struct {
+		Version string `json:"version"`
+	}{Version: version})
+	if err != nil {
+		return Message{}, err
+	}
+	message.Type = "hello"
+	message.Payload = payload
+	return message, nil
+}

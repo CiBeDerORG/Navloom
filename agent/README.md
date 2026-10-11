@@ -1,6 +1,6 @@
-# Navloom Agent（M2 配对阶段）
+# Navloom Agent（M2 WSS + 心跳阶段）
 
-Go Agent 可使用管理员签发的一次性令牌配对到 Navloom Server。**WSS、心跳、容器发现与 Docker 操作尚未实现**；配对成功只代表获得设备身份，不代表设备在线。
+Go Agent 可使用管理员签发的一次性令牌配对到 Navloom Server。**WSS 自动重连、心跳与在线状态已实现**；容器发现、任务命令与 Docker 操作尚未实现。配对成功后需正常启动 Agent 才会在线。
 
 ```bash
 # 先在 Navloom 管理后台的「应用实例管理」生成 10 分钟有效的一次性令牌。
@@ -19,6 +19,8 @@ unset PAIR_TOKEN
 - `server_url` 必须使用 `wss://`，Go 客户端自动使用同一域名的 `https://.../api/v1/agent/pair` 进行首次配对。仅显式开启 `NAVLOOM_ALLOW_INSECURE_DEV=true` 且使用 loopback 地址时允许 `ws://` 和 HTTP。
 - Go HTTP 客户端验证 TLS 证书，不跟随重定向，不在错误日志中输出令牌或设备凭据。
 - `-check` 仅检测 TCP/TLS 可达性，**不是** WebSocket 握手。
-- 普通启动仍是等待退出信号的骨架；M2 下一批实现 WSS 身份校验、心跳与重连。
+- 正常启动（不带 `-pair`）从私有文件读取身份，使用 `Authorization: Bearer` 头和设备 UUID 进行 WSS 握手；每 15 秒发送版本化 JSON 心跳，断线采用指数退避重连。Server 只允许 `hello` 和 `heartbeat` 消息，其他操作尚未开放。
+- `wss://` 必须使用有效 TLS 证书；生产 Server 应绑定回环地址，由 HTTPS/WSS 反向代理转发 `/agent`，不得把 Server 明文 HTTP 端口暴露公网。撤销设备会主动关闭现有连接。
+- 运行方式：`NAVLOOM_SERVER_URL=wss://navloom.example.com/agent NAVLOOM_AGENT_TOKEN_FILE="$HOME/.config/navloom/identity.json" go run ./cmd/navloom-agent`。开发可用 `ws://127.0.0.1:3000/agent` 配合显式 `NAVLOOM_ALLOW_INSECURE_DEV=true`。
 
 配置示例见 [config.example.json](./config.example.json)，跨平台构建使用 `./scripts/build-linux.sh`。

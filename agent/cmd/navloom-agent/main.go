@@ -13,6 +13,7 @@ import (
 	"github.com/CiBeDerORG/Navloom/agent/internal/config"
 	"github.com/CiBeDerORG/Navloom/agent/internal/pairing"
 	"github.com/CiBeDerORG/Navloom/agent/internal/probe"
+	"github.com/CiBeDerORG/Navloom/agent/internal/transport"
 )
 
 var version = "0.1.0-m0"
@@ -54,7 +55,7 @@ func run(args []string) int {
 			log.Error("Server reachability check failed", "error", err)
 			return 1
 		}
-		log.Info("Server TCP/TLS reachable; WSS handshake not implemented in M0")
+		log.Info("Server TCP/TLS reachable; normal startup performs WSS handshake")
 		return 0
 	}
 
@@ -84,14 +85,25 @@ func run(args []string) int {
 			log.Error("Agent paired but identity could not be saved; issue a new token after fixing storage", "error", err)
 			return 1
 		}
-		log.Info("Agent paired; WSS connectivity is not yet implemented", "agent_id", identity.AgentID)
+		log.Info("Agent paired; normal startup connects with the saved identity", "agent_id", identity.AgentID)
 		return 0
 	}
 
-	log.Warn("M2 pairing is available; WSS, heartbeats and Docker operations are not implemented yet")
+	if cfg.TokenFile == "" {
+		log.Error("normal Agent startup requires token_file or NAVLOOM_AGENT_TOKEN_FILE")
+		return 2
+	}
+	identity, err := pairing.LoadIdentity(cfg.TokenFile)
+	if err != nil {
+		log.Error("cannot load private Agent identity", "error", err)
+		return 1
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	<-ctx.Done()
+	if err := transport.Run(ctx, cfg, identity, version, log); err != nil {
+		log.Error("Agent transport stopped", "error", err)
+		return 1
+	}
 	log.Info("Agent stopped")
 	return 0
 }
