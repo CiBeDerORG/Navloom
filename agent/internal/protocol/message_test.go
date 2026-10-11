@@ -52,8 +52,8 @@ func TestNewHelloAndResultNeverSendHeartbeat(t *testing.T) {
 	for _, value := range []Message{msg, result} {
 		raw, err := json.Marshal(value)
 		if err != nil {
-		t.Fatal(err)
-	}
+			t.Fatal(err)
+		}
 		if len(raw) == 0 {
 			t.Fatal("empty message")
 		}
