@@ -2,7 +2,6 @@ package pairing
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,32 +15,12 @@ import (
 const sampleID = "4b0182c1-9312-4a42-a816-24fdfda39b55"
 const sampleSecret = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
-func TestPairAndPrivateIdentity(t *testing.T) {
-	calls := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if r.URL.Path != "/api/v1/agent/pair" || r.Method != http.MethodPost || r.Header.Get("X-Navloom-CSRF") != "1" {
-			t.Errorf("unexpected request: %s %s", r.Method, r.URL.String())
-		}
-		var body map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Error(err)
-		}
-		if body["token"] != sampleSecret || body["name"] != "my-nas" || body["platform"] == "" {
-			t.Errorf("invalid pairing payload")
-		}
-		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"agentId":"4b0182c1-9312-4a42-a816-24fdfda39b55","credential":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`))
-	}))
-	defer server.Close()
-	cfg := config.Config{ServerURL: strings.Replace(server.URL, "http://", "ws://", 1) + "/agent", AgentName: "my-nas", AllowInsecureDev: true}
-	identity, err := Pair(context.Background(), cfg, sampleSecret, "0.1.0-m2")
-	if err != nil {
-		t.Fatal(err)
+func TestLegacyPairRejectedAndPrivateIdentity(t *testing.T) {
+	cfg := config.Config{ServerURL: "ws://127.0.0.1:9/agent", AgentName: "my-nas", AllowInsecureDev: true}
+	if _, err := Pair(context.Background(), cfg, sampleSecret, "0.1.0-m2"); err == nil {
+		t.Fatal("pairing without private endpoint and TLS must be rejected before network access")
 	}
-	if calls != 1 || identity.AgentID != sampleID || identity.Credential != sampleSecret {
-		t.Fatalf("pairing mismatch")
-	}
+	identity := Identity{AgentID: sampleID, Credential: sampleSecret}
 	path := filepath.Join(t.TempDir(), "identity", "agent.json")
 	if err := SaveIdentity(path, identity); err != nil {
 		t.Fatal(err)
@@ -70,7 +49,17 @@ func TestPairRejectsRedirectsAndUnsafeURLs(t *testing.T) {
 		http.Redirect(w, r, other.URL, http.StatusTemporaryRedirect)
 	}))
 	defer server.Close()
-	cfg := config.Config{ServerURL: strings.Replace(server.URL, "http://", "ws://", 1) + "/agent", AgentName: "nas", AllowInsecureDev: true}
+	dir := t.TempDir()
+	cfg := config.Config{
+		ServerURL: strings.Replace(server.URL, "http://", "ws://", 1) + "/agent",
+		AgentName: "nas", AllowInsecureDev: true,
+		EndpointHost: "10.10.20.30", EndpointPort: 9443,
+		TLSCertFile: filepath.Join(dir, "agent.crt"),
+		TLSKeyFile: filepath.Join(dir, "agent.key"),
+	}
+	if err := GenerateAgentTLS(cfg); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Pair(context.Background(), cfg, sampleSecret, "test"); err == nil {
 		t.Fatal("redirect must be rejected")
 	}
