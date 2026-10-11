@@ -12,12 +12,12 @@ const csrf = { "x-navloom-csrf": "1", "content-type": "application/json" };
 type Identity = { id: string; credential: string };
 const uuid = () => randomUUID();
 
-async function setup(t: TestContext, heartbeatTimeoutMs = 45000, agentSweepIntervalMs = 5000) {
+async function setup(t: TestContext, heartbeatTimeoutMs = 45000, agentSweepIntervalMs = 5000, agentTaskTimeoutMs = 15000) {
   const db = openDatabase(":memory:");
   migrate(db.orm, { migrationsFolder: resolve(process.cwd(), "drizzle") });
   db.sqlite.prepare("INSERT INTO admin_users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)")
     .run(uuid(), "admin", await hashPassword("test-admin-password-123"), Date.now());
-  const app = buildApp({ logger: false }, { database: db, agentHeartbeatTimeoutMs: heartbeatTimeoutMs, agentSweepIntervalMs });
+  const app = buildApp({ logger: false }, { database: db, agentHeartbeatTimeoutMs: heartbeatTimeoutMs, agentSweepIntervalMs, agentTaskTimeoutMs });
   const address = await app.listen({ host: "127.0.0.1", port: 0 });
   t.after(async () => { await app.close(); db.close(); });
   const login = await app.inject({ method: "POST", url: "/api/v1/auth/admin/login", headers: csrf, payload: {
@@ -266,4 +266,24 @@ test("M2 task routing: task timeout stays unknown; missing capabilities and unis
     headers: { ...csrf, cookie }, payload: {},
   });
   assert.equal(offline.statusCode, 409);
+});
+
+
+test("M2 task routing: delivery timeout is unknown, not failed; no implicit replay", async (t) => {
+  const { app, address, cookie, createIdentity, headers } = await setup(t, 45000, 15, 45);
+  const a = createIdentity();
+  const socket = await dial(address, headers(a));
+  t.after(() => socket.terminate());
+  const task = await dispatchOnHello(socket, a.id);
+  const taskPath = "/api/v1/admin/agent-tasks/" + task.task_id;
+  await until(async () => (await app.inject({ method: "GET", url: taskPath, headers: { cookie } })).json().task.status === "unknown");
+  assert.equal((await app.inject({ method: "GET", url: taskPath, headers: { cookie } })).json().task.result, null);
+  // A read-only manual probe creates a new task; the expired task is not silently
+  // replayed as a mutating Docker command.
+  const next = await app.inject({
+    method: "POST", url: "/api/v1/admin/agents/" + a.id + "/capability-probe",
+    headers: { ...csrf, cookie }, payload: {},
+  });
+  assert.equal(next.statusCode, 202);
+  assert.notEqual(next.json().taskId, task.task_id);
 });
