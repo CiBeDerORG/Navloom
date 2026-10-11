@@ -258,8 +258,9 @@ test("M2 task routing: task timeout stays unknown; missing capabilities and unis
   const closedPromise = closed(socket);
   socket.send(JSON.stringify(message(a.id, "task_result", { success: true, exit_code: null }, { task_id: task.task_id })));
   assert.equal(await closedPromise, 1008);
-  const state = (await app.inject({ method: "GET", url: "/api/v1/admin/agent-tasks/" + task.task_id, headers: { cookie } })).json().task;
-  assert.equal(state.status, "unknown");
+  await until(async () => (await app.inject({
+    method: "GET", url: "/api/v1/admin/agent-tasks/" + task.task_id, headers: { cookie },
+  })).json().task.status === "unknown");
   const offline = await app.inject({
     method: "POST", url: "/api/v1/admin/agents/" + a.id + "/capability-probe",
     headers: { ...csrf, cookie }, payload: {},
