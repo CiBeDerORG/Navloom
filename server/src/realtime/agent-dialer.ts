@@ -97,9 +97,11 @@ export class ReverseAgentDialer {
       this.hub.connect(agentId, socket);
     });
     socket.once("close", () => {
+      const tracked = this.connecting.get(agentId) === socket || this.sockets.get(agentId) === socket;
       if (this.connecting.get(agentId) === socket) this.connecting.delete(agentId);
       if (this.sockets.get(agentId) === socket) this.sockets.delete(agentId);
-      if (this.active) this.scheduleReconnect(agentId);
+      // Deliberate close (last page, revoke, or shutdown) must never schedule a retry.
+      if (this.active && tracked) this.scheduleReconnect(agentId);
     });
     return true;
   }
