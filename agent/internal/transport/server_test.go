@@ -37,10 +37,12 @@ func clientTLSCert(t *testing.T) (tls.Certificate, string) {
 	}
 	now := time.Now()
 	template := &x509.Certificate{
-		SerialNumber: serial, Subject: pkix.Name{CommonName: "Navloom Server test"},
-		NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour),
-		KeyUsage: x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "Navloom Server test"},
+		NotBefore:    now.Add(-time.Minute),
+		NotAfter:     now.Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
 	if err != nil {
@@ -61,9 +63,12 @@ func clientTLSCert(t *testing.T) (tls.Certificate, string) {
 func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
-		ServerURL: "wss://navloom.example.com/agent", AgentName: "nas",
-		EndpointHost: "10.10.20.30", EndpointPort: 9443,
-		TLSCertFile: filepath.Join(dir, "agent.crt"), TLSKeyFile: filepath.Join(dir, "agent.key"),
+		ServerURL:   "wss://navloom.example.com/agent",
+		AgentName:   "nas",
+		EndpointHost: "10.10.20.30",
+		EndpointPort: 9443,
+		TLSCertFile: filepath.Join(dir, "agent.crt"),
+		TLSKeyFile:  filepath.Join(dir, "agent.key"),
 	}
 	if err := pairing.GenerateAgentTLS(cfg); err != nil {
 		t.Fatal(err)
@@ -94,10 +99,9 @@ func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 		}}
 	}
 	url := strings.Replace(server.URL, "https://", "wss://", 1) + "/agent"
-	headers := http.Header{
-		"X-Navloom-Agent-Id": {testAgentID},
-		"X-Navloom-Protocol-Version": {"1"},
-	}
+	headers := http.Header{}
+	headers.Set("X-Navloom-Agent-Id", testAgentID)
+	headers.Set("X-Navloom-Protocol-Version", "1")
 	if conn, _, err := makeDialer(nil).Dial(url, headers); err == nil {
 		conn.Close()
 		t.Fatal("missing Server client certificate was accepted")
@@ -107,10 +111,9 @@ func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 		conn.Close()
 		t.Fatal("untrusted Server client certificate was accepted")
 	}
-	wrongID := http.Header{
-		"X-Navloom-Agent-Id": {"00000000-0000-4000-8000-000000000000"},
-		"X-Navloom-Protocol-Version": {"1"},
-	}
+	wrongID := http.Header{}
+	wrongID.Set("X-Navloom-Agent-Id", "00000000-0000-4000-8000-000000000000")
+	wrongID.Set("X-Navloom-Protocol-Version", "1")
 	if conn, response, err := makeDialer([]tls.Certificate{client}).Dial(url, wrongID); err == nil || response == nil || response.StatusCode != http.StatusUnauthorized {
 		if conn != nil {
 			conn.Close()
@@ -124,7 +127,7 @@ func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 	defer conn.Close()
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	var hello struct {
-		Type string `json:"type"`
+		Type    string `json:"type"`
 		AgentID string `json:"agent_id"`
 	}
 	if err := conn.ReadJSON(&hello); err != nil || hello.Type != "hello" || hello.AgentID != testAgentID {
@@ -139,11 +142,12 @@ func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 	taskID := "de57a2f3-38da-4cb7-a676-81b3950b9701"
 	task, err := json.Marshal(map[string]any{
 		"protocol_version": 1,
-		"message_id": "a57be91b-cbf5-4c84-93cb-b07c126bb18a",
-		"agent_id": testAgentID, "task_id": taskID,
-		"sent_at": time.Now().UTC().Format(time.RFC3339),
-		"type": "task_dispatch",
-		"payload": map[string]any{"operation": "capability_probe", "arguments": map[string]any{}},
+		"message_id":       "a57be91b-cbf5-4c84-93cb-b07c126bb18a",
+		"agent_id":         testAgentID,
+		"task_id":          taskID,
+		"sent_at":          time.Now().UTC().Format(time.RFC3339),
+		"type":             "task_dispatch",
+		"payload":          map[string]any{"operation": "capability_probe", "arguments": map[string]any{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +156,7 @@ func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 		t.Fatal(err)
 	}
 	var result struct {
-		Type string `json:"type"`
+		Type   string `json:"type"`
 		TaskID string `json:"task_id"`
 	}
 	if err := conn.ReadJSON(&result); err != nil || result.Type != "task_result" || result.TaskID != taskID {
