@@ -63,12 +63,12 @@ func clientTLSCert(t *testing.T) (tls.Certificate, string) {
 func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
-		ServerURL:   "wss://navloom.example.com/agent",
-		AgentName:   "nas",
+		ServerURL:    "wss://navloom.example.com/agent",
+		AgentName:    "nas",
 		EndpointHost: "10.10.20.30",
 		EndpointPort: 9443,
-		TLSCertFile: filepath.Join(dir, "agent.crt"),
-		TLSKeyFile:  filepath.Join(dir, "agent.key"),
+		TLSCertFile:  filepath.Join(dir, "agent.crt"),
+		TLSKeyFile:   filepath.Join(dir, "agent.key"),
 	}
 	if err := pairing.GenerateAgentTLS(cfg); err != nil {
 		t.Fatal(err)
