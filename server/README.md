@@ -66,3 +66,13 @@ npm run dev:server
 Agent 完成 `hello` 后自动接收只读能力探测任务；只允许与所属 Agent 对应的 `task_result` 更新 SQLite。任务 `sent` 在断线、超时、Server 重启后变为 `unknown`，**不等于失败**；重复结果幂等，迟到结果仍可关联。当前不会自动重放任务，也没有通用命令执行接口。
 
 `AgentCommandSchema` 已定义未来的容器启停/重启、inventory 和 Compose 部署参数，但**本批仅执行 `capability_probe`**。即使 Agent 报告 Docker/Compose 可用，也不意味着已开放安装或容器操作。生产环境必须使用可信 TLS/WSS 反向代理，禁止公网明文连接。完整 Codex 验收步骤见 [统一验收清单](../planning/M1-CODEX-REGRESSION.md)。
+
+## M2 新架构：全局页面在线与 Server 主动连接 Agent（开发中）
+
+- Server 启动时可通过 `AGENT_CLIENT_CERT_FILE` 和 `AGENT_CLIENT_KEY_FILE` 加载专用于 Agent mTLS 的客户端证书/私钥；密钥必须仅 Server 可读（0600）。新 Agent 配对时携带可信私网/EasyTier IP、端口和 Agent 服务器证书，Server 只保存公开证书及指纹。
+- 已解锁首页或已登录后台使用同源 `WS/WSS /api/v1/presence` 登记在线。**只有真实打开的已登录页面才计入**，未登录页面/浏览器关闭但 Cookie 尚存不计入。Server 为所有页面维护一套 Agent 连接和 Ping/Pong 管理器；最后一个页面离开时取消重连、关闭 Agent WSS。浏览器断网由页面 WS Ping/Pong 和会话重验证处理。
+- `GET/PATCH /api/v1/admin/agents/probe-settings` 读取/修改全局 `manual/auto`、间隔 5～300 秒；`POST /api/v1/admin/agents/probe` 手动发送 Agent WSS Ping。均需管理员 Cookie，写入需 CSRF 头；首页 Cookie **不能修改设置或下发任务**。设置变更广播至所有已登录页面。Pong 不触发 SQLite 周期写入。
+- 反向 Agent 在没有已登录页面时显示「暂停检测」并保留最近通信/能力历史，不因人为关闭页面伪判离线。仅 `hello`、任务结果写入最近通信时间；Docker 能力探测仍是独立的管理员只读任务。
+- **阶段限制**：Server 旧入站 `/agent` 及旧 Agent 主动 WSS/JSON 心跳暂未删除，历史集成测试仍保留。新 Go 被动 Agent ↔ Node 主动 Server 已有私网双向 TLS 的 CI 隔离联调，但仍需移除旧路径、完成浏览器端和 Codex 独立验收后才可宣称零页面零 Agent 通信。生产部署暂未开放。
+
+配置/配对步骤见 [Agent README](../agent/README.md)，实施与 CI 证据见 [M2 实施记录](../planning/M2-IMPLEMENTATION.md)。

@@ -132,3 +132,9 @@ npm run test:go
 - Server `AgentHub` 为反向会话新增仅 Ping/Pong 探测，Pong 不写 SQLite，手动模式无定时 Agent Ping；旧主动会话暂保持旧行为，避免在未完成新双端联调前破坏旧回归。反向 Agent 收到 hello 不再自动下发能力探测任务。Agent 掉线后只在页面在线期间指数退避重连；配对新 Agent 时仅在已有在线页面下触发连接。
 - Web 在已解锁导航页和已登录后台建立页面 WS，登录界面不登记，页面路由变化/注销时释放；后台「应用实例管理」新增自动/手动间隔设置与「检测连接」按钮。开发 Vite WS 代理已启用。
 - **限制**：旧 `/agent` Agent 主动接入和旧 Agent 无端点回退路径仍存在，故尚未全面达成「无人在线零 Agent 通信」；需先完成新 Go 被动 Agent ↔ Node 主动 Server 的双向 TLS 实机/隔离端到端联调，再移除旧路径并重做旧集成测试。新页面登记/探测也未经过 Codex 独立验收。
+
+## T-036～T-040 反向 mTLS 端到端 CI 证据（2026-10-11）
+
+- [GitHub Actions 38155682480](https://github.com/CiBeDerORG/Navloom/actions/runs/38155682480)：**4/4 作业通过**，其中 `scripts/smoke-m2-reverse.mjs` 在 CI runner 的隔离私网接口上启动**真实 Go 被动 Agent**、**真实 Node 主动 Server**，由 OpenSSL 创建 Server mTLS 客户端证书、Go CLI 生成 Agent 私钥/证书并一次性配对，验证「无页面不连接」「首个管理员页面建立 WSS」「Ping/Pong 不更新 SQLite last_seen_at」「管理员手动只读任务成功」「首页+管理员两页共享连接」「最后页面离开停止通信」「页面重新打开恢复连接」。
+- 这条 CI 同时运行旧主动 WSS 两 Agent 回归，以便迁移期间发现兼容性回归。**不等于旧路径已移除，不等于真实 NAS 环境或 Codex 独立验收**；E 组 T-036～T-059 仍全部 `NOT_RUN`。
+- 下一步优先移除旧 Server `/agent` 入站和 Agent 无反向端点时的主动 WSS 回退，并将旧集成测试替换为新架构的双 Agent/撤销/重连/异常断开回归；随后验证 0 页面严格无 Agent 网络流量和异常浏览器退出的有限探测延迟。

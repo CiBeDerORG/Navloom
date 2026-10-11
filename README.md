@@ -1,8 +1,8 @@
 # Navloom
 
-**Navloom** 是面向个人自托管场景的导航优先应用平台。首页只展示用户编排的导航卡片；云端 Server 管理导航、应用实例与多个设备 Agent。Agent 将来负责发现 Docker 容器及执行 Docker Compose 部署。M2 已提交安全配对、WSS 心跳和 Go 自动重连，容器池尚未实现。
+**Navloom** 是面向个人自托管场景的导航优先应用平台。首页只展示用户编排的导航卡片；云端 Server 管理导航、应用实例与多个设备 Agent。Agent 将来负责发现 Docker 容器及执行 Docker Compose 部署。M2 正在从旧 Agent 主动 WSS/JSON 心跳迁移到 Server 按已登录页面主动连接 Agent 的私网双向 TLS WSS；容器池尚未实现。
 
-> **当前状态：M0 已完成；M1 导航与双层访问控制已实现首批功能，正在验证与完善。M2 已开始实现 Agent 安全配对与设备登记；WSS、容器池与 Docker 管理尚未实现；生产部署与完整安全审查在 M4，当前版本仅用于本地开发。**
+> **当前状态：M0 已完成；M1 导航与双层访问控制已实现首批功能，正在验证与完善。M2 反向 WSS、私网 mTLS、已登录页面在线调度和手动/自动 Ping/Pong 已有代码及隔离 CI 联调；旧 Agent 主动接入路径尚未删除，Codex 独立验收尚未完成。容器池和 Docker 管理尚未实现，生产部署与完整安全审查在 M4。当前版本仅用于本地开发。**
 
 ## 项目结构
 
@@ -70,7 +70,7 @@ docker compose -f compose.dev.yml up
 
 管理员登录「应用实例管理」，点击「生成一次性接入令牌」；该令牌 10 分钟内有效，只能使用一次。Go Agent 使用 `-pair` 从标准输入读取令牌，成功后在设备本地私有文件中保存独立身份凭据。具体命令见 [agent/README.md](./agent/README.md)。
 
-当前已提交 WSS 认证、心跳、自动重连及只读 Docker/Compose 能力探测；配对后还需正常启动 Agent 才会显示在线。设备详情显示能力与不可用原因，可手动刷新。容器池和实际容器操作仍未实现；「在线」不代表「Docker 已可用」。
+当前已提交反向私网 mTLS WSS、全局已登录页面按需连接和 Ping/Pong 设置、只读 Docker/Compose 能力探测；配对后还需正常启动 Agent，且至少一个已登录页面在线才会建立反向连接。旧主动连接路径尚未移除。设备详情显示能力与不可用原因，可手动刷新。容器池和实际容器操作仍未实现；「在线」不代表「Docker 已可用」。
 
 ### Go Agent
 
@@ -99,7 +99,7 @@ npm run build:agent       # 构建 Linux Agent（当前平台 Go 编译）
 
 ## 数据与安全边界
 
-- Server 只运行在云端；Agent 将来通过独立认证的 WSS 主动连接，EasyTier 仅提供网络连通性。
+- Server 可经可信 LAN/EasyTier 私网主动连接被动监听的 Agent；Agent 不暴露公网。旧 Agent 主动 WSS 代码仍待删除，迁移完成前不可宣称零页面零通信。
 - **导航卡片独立于容器/应用**，删除导航不会操作 Docker。
 - Compose `up` 退出码 0 定义为“部署成功”，不等于健康或网页可达。
 - M1 已提供首页只读导航和管理员认证/导航管理 API，未提供 Agent 或 Docker 操作 API。
