@@ -157,7 +157,7 @@ try {
   const settings = () => call("/api/v1/admin/agents/probe-settings", "GET", undefined, cookie);
   const devices = async () => (await call("/api/v1/admin/agents", "GET", undefined, cookie)).payload.agents;
   assert.equal((await settings()).payload.activePages, 0);
-  assert.equal((await devices())[0].status, "offline");
+  assert.equal((await devices())[0].status, "paused");
   // Start the passive Agent without any authenticated page: it must not dial Server.
   const agent = spawn(binary, ["-config", cfg], { stdio: "ignore" });
   children.push(agent);
