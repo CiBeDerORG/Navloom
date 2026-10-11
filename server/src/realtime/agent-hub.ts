@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { randomUUID } from "node:crypto";
 import websocket from "@fastify/websocket";
 import { AgentMessageSchema, AGENT_PROTOCOL_VERSION } from "@navloom/contracts";
 import { AgentTasks } from "./agent-tasks.js";
@@ -98,23 +99,30 @@ export class AgentHub {
     }
   }
 
+  private reject(session: Session, code: number, reason: string): void {
+    // Security audit contains only a fixed event name, never a raw task or credential.
+    this.db.sqlite.prepare("INSERT INTO agent_audit_events (id, agent_id, event, created_at) VALUES (?, ?, ?, ?)")
+      .run(randomUUID(), session.agentId, "protocol_rejected", Date.now());
+    session.socket.close(code, reason);
+  }
+
   private receive(session: Session, raw: string): void {
     if (Buffer.byteLength(raw, "utf8") > MAX_MESSAGE_BYTES) {
-      session.socket.close(1009, "message too large");
+      this.reject(session, 1009, "message too large");
       return;
     }
     let input: unknown;
     try { input = JSON.parse(raw); }
-    catch { session.socket.close(1007, "invalid json"); return; }
+    catch { this.reject(session, 1007, "invalid json"); return; }
     const parsed = AgentMessageSchema.safeParse(input);
-    if (!parsed.success) { session.socket.close(1008, "invalid protocol message"); return; }
+    if (!parsed.success) { this.reject(session, 1008, "invalid protocol message"); return; }
     const message = parsed.data;
     if (message.agent_id !== session.agentId ||
         !["hello", "heartbeat", "task_result"].includes(message.type) ||
         (message.type === "hello" && session.helloReceived) ||
         (message.type !== "hello" && !session.helloReceived) ||
         session.seenMessages.has(message.message_id)) {
-      session.socket.close(1008, "message not allowed");
+      this.reject(session, 1008, "message not allowed");
       return;
     }
     session.seenMessages.add(message.message_id);
@@ -130,7 +138,7 @@ export class AgentHub {
       catch { /* A delivery failure leaves an unknown task, never a false failure. */ }
     } else if (message.type === "task_result") {
       if (!this.tasks.acceptResult(session.agentId, message)) {
-        session.socket.close(1008, "task result rejected");
+        this.reject(session, 1008, "task result rejected");
         return;
       }
       this.touch(session);
