@@ -392,3 +392,5 @@ npm run db:migrate
 **T-036～T-038 自动化增量（非 Codex PASS，2026-10-11）**：[CI 38154719616](https://github.com/CiBeDerORG/Navloom/actions/runs/38154719616) 4/4 通过，覆盖 Go 私网 TLS 证书生成/权限、被动 WSS 客户端证书校验、重复连接拒绝、Ping/Pong 与只读任务，以及 Node 主动拨号器静态安全条件。**尚未覆盖 Server 主动连接真实 Go 被动 Agent、首页口令导航页在线驱动或零页面抓包**，因此 E 组 T-036～T-059 仍全部 `NOT_RUN`，不得沿用旧 CI 或此增量 CI 判定独立验收通过。
 
 **自动化证据追加（非独立验收，2026-10-11）**：[CI 38155682480](https://github.com/CiBeDerORG/Navloom/actions/runs/38155682480) 4/4 通过，新增真实 Go 被动 Agent ↔ Node 主动 Server 的私网 mTLS 配对、页面在线按需连接、Ping/Pong、只读任务和多页面断连/重连隔离脚本。**E 组 T-036～T-059 仍为 `NOT_RUN`**；旧主动 WSS 路径未移除，不能以此宣称完整新架构、真实 NAS 或独立 Codex 验收 PASS。
+
+**反向 WSS v2 清理与双 Agent CI（2026-10-12，非 Codex PASS）**：[CI 38159332832](https://github.com/CiBeDerORG/Navloom/actions/runs/38159332832) 四项均通过；旧 Agent 主动 WSS、Server `/agent` 入站及 JSON heartbeat 均已删除。隔离环境中的两台真实 Go 被动 Agent 与 Node Server 验证了首页单页连接、多页面共享、手动 Ping、A/B 任务隔离、单 Agent 重启、撤销后禁连与零页面状态冻结。**E1～E3 仍须 Codex 独立执行异常浏览器关闭、包级零通信、证书拒绝、真实 NAS 安全验证；T-036～T-059 均维持 `NOT_RUN`，不得凭 CI 直接勾选。**
