@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: Web + Server + SQLite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install npm workspaces
+        run: npm install --no-audit --no-fund
+      - name: Build contracts, Server and Web
+        run: npm run build
+      - name: TypeScript / Vue typecheck
+        run: npm run typecheck
+      - name: ESLint
+        run: npm run lint:ts
+      - name: Server and SQLite tests
+        run: npm run test:server
+      - name: Apply migrations twice
+        run: |
+          npm run db:migrate
+          npm run db:migrate
+
+  go:
+    name: Go Agent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+      - name: gofmt check
+        working-directory: agent
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Go files need formatting:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Go tests
+        working-directory: agent
+        run: go test ./...
+      - name: Build Linux amd64 and arm64
+        working-directory: agent
+        run: ./scripts/build-linux.sh

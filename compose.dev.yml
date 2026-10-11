@@ -1,0 +1,21 @@
+# M0 local development only. Do not expose the unauthenticated scaffold publicly.
+services:
+  navloom-dev:
+    image: node:22-bookworm
+    working_dir: /workspace
+    command: >
+      sh -lc "npm install --no-audit --no-fund && npm run db:migrate && npm run dev"
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: "3000"
+      DATABASE_URL: /workspace/server/data/navloom.db
+    ports:
+      - "127.0.0.1:5173:5173"
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./:/workspace
+      - navloom_node_modules:/workspace/node_modules
+
+volumes:
+  navloom_node_modules:

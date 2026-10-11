@@ -14,13 +14,15 @@
     "build:web": "npm run build -w @navloom/web",
     "build": "npm run build:contracts && npm run build:server && npm run build:web",
     "dev": "npm run build:contracts && concurrently -k -n server,web \"npm run dev -w @navloom/server\" \"npm run dev -w @navloom/web\"",
+    "dev:server": "npm run build:contracts && npm run dev -w @navloom/server",
+    "dev:web": "npm run build:contracts && npm run dev -w @navloom/web",
     "typecheck": "npm run build:contracts && npm run typecheck -w @navloom/server && npm run typecheck -w @navloom/web",
     "lint:ts": "eslint . --max-warnings=0",
     "lint:go": "cd agent && test -z \"$(gofmt -l .)\"",
     "format:check": "prettier --check .",
     "test:server": "npm run build:contracts && npm run test -w @navloom/server",
     "test:go": "cd agent && go test ./...",
-    "build:agent": "cd agent && go build -o bin/navloom-agent ./cmd/navloom-agent",
+    "build:agent": "cd agent && mkdir -p bin && go build -o bin/navloom-agent ./cmd/navloom-agent",
     "db:migrate": "npm run db:migrate -w @navloom/server"
   },
   "devDependencies": {

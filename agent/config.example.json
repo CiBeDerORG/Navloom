@@ -1,0 +1,6 @@
+{
+  "server_url": "wss://navloom.example.com/agent",
+  "agent_name": "my-nas",
+  "token_file": "",
+  "allow_insecure_dev": false
+}
