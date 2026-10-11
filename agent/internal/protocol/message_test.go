@@ -36,15 +36,27 @@ func TestHelloFixtureAndProtocolVersion(t *testing.T) {
 
 func TestNewHelloAndResultNeverSendHeartbeat(t *testing.T) {
 	msg, err := NewHello(validAgent, "m2")
-	if err != nil { t.Fatal(err) }
-	if msg.Type != "hello" || msg.ProtocolVersion != Version { t.Fatal("invalid hello") }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Type != "hello" || msg.ProtocolVersion != Version {
+		t.Fatal("invalid hello")
+	}
 	result, err := NewCapabilityResult(validAgent, validTask, Capabilities{})
-	if err != nil { t.Fatal(err) }
-	if result.Type != "task_result" || result.ProtocolVersion != Version { t.Fatal("invalid task result") }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Type != "task_result" || result.ProtocolVersion != Version {
+		t.Fatal("invalid task result")
+	}
 	for _, value := range []Message{msg, result} {
 		raw, err := json.Marshal(value)
-		if err != nil { t.Fatal(err) }
-		if len(raw) == 0 { t.Fatal("empty message") }
+		if err != nil {
+		t.Fatal(err)
+	}
+		if len(raw) == 0 {
+			t.Fatal("empty message")
+		}
 	}
 	if _, err := NewHello("agent-1", "m2"); err == nil {
 		t.Fatal("must reject invalid agent ID")
