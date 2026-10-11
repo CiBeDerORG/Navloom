@@ -149,7 +149,7 @@ func serve(ctx context.Context, conn *websocket.Conn, agentID, version string, i
 	readDone := make(chan error, 1)
 	go func() {
 		for {
-			kind, _, err := conn.ReadMessage()
+			kind, data, err := conn.ReadMessage()
 			if err != nil {
 				readDone <- err
 				return
