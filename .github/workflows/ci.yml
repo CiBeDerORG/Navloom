@@ -19,6 +19,11 @@ jobs:
           node-version: "22"
       - name: Install npm workspaces
         run: npm install --no-audit --no-fund
+      - name: Export generated npm lockfile for dependency pinning
+        run: |
+          echo NAVLOOM_LOCKFILE_BEGIN
+          base64 -w 4096 package-lock.json
+          echo NAVLOOM_LOCKFILE_END
       - name: Build contracts, Server and Web
         run: npm run build
       - name: TypeScript / Vue typecheck
