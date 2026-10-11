@@ -1,13 +1,16 @@
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
 
-const scrypt = promisify(scryptCallback);
 const COST = 32768;
 const KEY_LENGTH = 32;
 const MAX_MEMORY = 64 * 1024 * 1024;
 
 async function derive(password: string, salt: Buffer, cost: number): Promise<Buffer> {
-  return (await scrypt(password, salt, KEY_LENGTH, { N: cost, r: 8, p: 1, maxmem: MAX_MEMORY })) as Buffer;
+  return await new Promise<Buffer>((resolve, reject) => {
+    scryptCallback(password, salt, KEY_LENGTH, { N: cost, r: 8, p: 1, maxmem: MAX_MEMORY }, (error, key) => {
+      if (error) reject(error);
+      else resolve(key);
+    });
+  });
 }
 
 export async function hashPassword(password: string): Promise<string> {
