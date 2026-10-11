@@ -1,8 +1,8 @@
 # Navloom
 
-**Navloom** 是面向个人自托管场景的导航优先应用平台。首页只展示用户编排的导航卡片；云端 Server 管理导航、应用实例与多个设备 Agent。Agent 将来负责发现 Docker 容器及执行 Docker Compose 部署。M2 正在从旧 Agent 主动 WSS/JSON 心跳迁移到 Server 按已登录页面主动连接 Agent 的私网双向 TLS WSS；容器池尚未实现。
+**Navloom** 是面向个人自托管场景的导航优先应用平台。首页只展示用户编排的导航卡片；云端 Server 管理导航、应用实例与多个设备 Agent。Agent 将来负责发现 Docker 容器及执行 Docker Compose 部署。M2 已移除旧 Agent 主动 WSS/JSON 心跳，改为 Server 按已登录页面主动连接 Agent 的私网双向 TLS WSS（协议 v2）；容器池尚未实现。
 
-> **当前状态：M0 已完成；M1 导航与双层访问控制已实现首批功能，正在验证与完善。M2 反向 WSS、私网 mTLS、已登录页面在线调度和手动/自动 Ping/Pong 已有代码及隔离 CI 联调；旧 Agent 主动接入路径尚未删除，Codex 独立验收尚未完成。容器池和 Docker 管理尚未实现，生产部署与完整安全审查在 M4。当前版本仅用于本地开发。**
+> **当前状态：M0 已完成；M1 导航与双层访问控制已实现首批功能，正在验证与完善。M2 反向 WSS、私网 mTLS、已登录页面在线调度和手动/自动 Ping/Pong 已有代码及隔离 CI 联调；旧 Agent 主动接入路径已删除，Codex 独立验收尚未完成。容器池和 Docker 管理尚未实现，生产部署与完整安全审查在 M4。当前版本仅用于本地开发。**
 
 ## 项目结构
 
@@ -10,8 +10,8 @@
 | --- | --- |
 | `web/` | Vue 3 + TypeScript + Vite，Tailwind CSS 4、shadcn-vue 组件约定 |
 | `server/` | Fastify + TypeScript、SQLite + Drizzle ORM |
-| `agent/` | Go Agent，设备端独立程序（M0 仅配置与连接可达性检测） |
-| `packages/contracts/` | Web/Server 共享 API 类型与 Zod 运行时 Schema；Agent JSON 协议 v1 草案 |
+| `agent/` | Go Agent，Go 被动 mTLS WSS 监听与只读任务处理 |
+| `packages/contracts/` | Web/Server 共享 API 类型与 Zod 运行时 Schema；Agent JSON 协议 v2 |
 | `apps/` | 可信应用模板目录（M3 实现） |
 | `deploy/` | 部署资料（M4 实现生产部署） |
 | `planning/` | [PRD、架构、路线图、114 项任务](./planning/README.md) |
@@ -70,7 +70,7 @@ docker compose -f compose.dev.yml up
 
 管理员登录「应用实例管理」，点击「生成一次性接入令牌」；该令牌 10 分钟内有效，只能使用一次。Go Agent 使用 `-pair` 从标准输入读取令牌，成功后在设备本地私有文件中保存独立身份凭据。具体命令见 [agent/README.md](./agent/README.md)。
 
-当前已提交反向私网 mTLS WSS、全局已登录页面按需连接和 Ping/Pong 设置、只读 Docker/Compose 能力探测；配对后还需正常启动 Agent，且至少一个已登录页面在线才会建立反向连接。旧主动连接路径尚未移除。设备详情显示能力与不可用原因，可手动刷新。容器池和实际容器操作仍未实现；「在线」不代表「Docker 已可用」。
+当前已提交反向私网 mTLS WSS、全局已登录页面按需连接和 Ping/Pong 设置、只读 Docker/Compose 能力探测；配对后还需正常启动 Agent，且至少一个已登录页面在线才会建立反向连接。旧版 Agent 需要重新配对才能接入。设备详情显示能力与不可用原因，可手动刷新。容器池和实际容器操作仍未实现；「在线」不代表「Docker 已可用」。
 
 ### Go Agent
 
@@ -81,7 +81,7 @@ go run ./cmd/navloom-agent -version
 NAVLOOM_SERVER_URL=wss://example.com/agent go run ./cmd/navloom-agent -check
 ```
 
-`-check` **只检测目标地址的 TCP/TLS 可达性**，不是 WebSocket 握手，也不会注册 Agent；WSS、配对、心跳和 Docker 操作属于 M2/M3。运行 `go run ./cmd/navloom-agent` 会启动仅等待退出信号的 M0 骨架，并明确提示未接入服务端。配置示例见 `agent/config.example.json`。
+`-check` **只检测目标地址的 TCP/TLS 可达性**，不是 WebSocket 握手，也不会注册 Agent；反向 WSS 和配对属于 M2，普通启动必须明确配置私网监听端点与身份，不再支持旧主动连接。配置示例见 `agent/config.example.json`。
 
 ## 常用命令
 
@@ -103,7 +103,7 @@ npm run build:agent       # 构建 Linux Agent（当前平台 Go 编译）
 - **导航卡片独立于容器/应用**，删除导航不会操作 Docker。
 - Compose `up` 退出码 0 定义为“部署成功”，不等于健康或网页可达。
 - M1 已提供首页只读导航和管理员认证/导航管理 API，未提供 Agent 或 Docker 操作 API。
-- 首页 Cookie 只能读取导航；所有管理 API 必须具有独立管理员会话及 CSRF 保护。
+- 首页 Cookie 只允许读取导航并登记页面在线；设备管理、探测设置和 Docker API 仍要求管理员会话及 CSRF 保护。
 - 真实密码、Agent 令牌、数据库和环境文件不得提交到 Git。
 
 完整范围、待确认决策与任务：[planning/PRD.md](./planning/PRD.md)、[planning/DECISIONS.md](./planning/DECISIONS.md)、[planning/tasks/01-foundation.md](./planning/tasks/01-foundation.md)。
