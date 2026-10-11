@@ -100,7 +100,6 @@ func TestReadTokenAndIdentityPermissions(t *testing.T) {
 	}
 }
 
-
 func TestPairRequiresValidReverseEndpointConfiguration(t *testing.T) {
 	cfg := config.Config{
 		ServerURL: "wss://navloom.example.com/agent", AgentName: "nas",
