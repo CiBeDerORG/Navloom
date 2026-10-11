@@ -5,19 +5,12 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema.js";
 
 export function openDatabase(databasePath: string) {
-  if (databasePath !== ":memory:") {
-    mkdirSync(dirname(resolve(databasePath)), { recursive: true });
-  }
-
+  if (databasePath !== ":memory:") mkdirSync(dirname(resolve(databasePath)), { recursive: true });
   const sqlite = new Database(databasePath);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
   sqlite.pragma("busy_timeout = 5000");
-
   const orm = drizzle(sqlite, { schema });
-  return {
-    sqlite,
-    orm,
-    close: () => sqlite.close(),
-  };
+  return { sqlite, orm, close: () => sqlite.close() };
 }
+export type DatabaseConnection = ReturnType<typeof openDatabase>;

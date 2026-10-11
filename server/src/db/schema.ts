@@ -6,7 +6,6 @@ export const adminUsers = sqliteTable("admin_users", {
   passwordHash: text("password_hash").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
-
 export const adminSessions = sqliteTable("admin_sessions", {
   id: text("id").primaryKey(),
   adminUserId: text("admin_user_id").notNull().references(() => adminUsers.id, { onDelete: "cascade" }),
@@ -15,14 +14,12 @@ export const adminSessions = sqliteTable("admin_sessions", {
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
   revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
 });
-
 export const homeAccessSettings = sqliteTable("home_access_settings", {
   id: text("id").primaryKey(),
   passwordHash: text("password_hash").notNull(),
   credentialVersion: integer("credential_version").notNull().default(1),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
-
 export const homeCredentials = sqliteTable("home_credentials", {
   id: text("id").primaryKey(),
   tokenHash: text("token_hash").notNull().unique(),
@@ -31,13 +28,11 @@ export const homeCredentials = sqliteTable("home_credentials", {
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
   revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
 });
-
 export const navigationGroups = sqliteTable("navigation_groups", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
 });
-
 export const navigationCards = sqliteTable("navigation_cards", {
   id: text("id").primaryKey(),
   groupId: text("group_id").references(() => navigationGroups.id, { onDelete: "set null" }),
@@ -46,11 +41,11 @@ export const navigationCards = sqliteTable("navigation_cards", {
   icon: text("icon"),
   description: text("description"),
   sortOrder: integer("sort_order").notNull().default(0),
+  openTarget: text("open_target", { enum: ["_blank", "_self"] }).notNull().default("_blank"),
   linkType: text("link_type"),
   linkTargetId: text("link_target_id"),
   generatedByTaskId: text("generated_by_task_id").unique(),
 });
-
 export const agents = sqliteTable("agents", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -61,45 +56,32 @@ export const agents = sqliteTable("agents", {
   lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
   revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
 });
-
-export const containerInventory = sqliteTable(
-  "container_inventory",
-  {
-    id: text("id").primaryKey(),
-    agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
-    containerId: text("container_id").notNull(),
-    name: text("name").notNull(),
-    image: text("image").notNull(),
-    state: text("state").notNull(),
-    portsJson: text("ports_json").notNull().default("[]"),
-    labelsJson: text("labels_json").notNull().default("{}"),
-    composeProject: text("compose_project"),
-    composeService: text("compose_service"),
-    lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }).notNull(),
-  },
-  (table) => [
-    uniqueIndex("container_inventory_agent_container_uq").on(table.agentId, table.containerId),
-    index("container_inventory_agent_idx").on(table.agentId),
-  ],
-);
-
-export const appInstances = sqliteTable(
-  "app_instances",
-  {
-    id: text("id").primaryKey(),
-    agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "restrict" }),
-    templateId: text("template_id").notNull(),
-    templateVersion: text("template_version").notNull(),
-    composeProject: text("compose_project").notNull(),
-    deploymentPath: text("deployment_path").notNull(),
-    installTaskId: text("install_task_id").notNull().unique(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  },
-  (table) => [
-    uniqueIndex("app_instances_agent_project_uq").on(table.agentId, table.composeProject),
-  ],
-);
-
+export const containerInventory = sqliteTable("container_inventory", {
+  id: text("id").primaryKey(),
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  containerId: text("container_id").notNull(),
+  name: text("name").notNull(),
+  image: text("image").notNull(),
+  state: text("state").notNull(),
+  portsJson: text("ports_json").notNull().default("[]"),
+  labelsJson: text("labels_json").notNull().default("{}"),
+  composeProject: text("compose_project"),
+  composeService: text("compose_service"),
+  lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("container_inventory_agent_container_uq").on(table.agentId, table.containerId),
+  index("container_inventory_agent_idx").on(table.agentId),
+]);
+export const appInstances = sqliteTable("app_instances", {
+  id: text("id").primaryKey(),
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "restrict" }),
+  templateId: text("template_id").notNull(),
+  templateVersion: text("template_version").notNull(),
+  composeProject: text("compose_project").notNull(),
+  deploymentPath: text("deployment_path").notNull(),
+  installTaskId: text("install_task_id").notNull().unique(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [uniqueIndex("app_instances_agent_project_uq").on(table.agentId, table.composeProject)]);
 export const installTasks = sqliteTable("install_tasks", {
   id: text("id").primaryKey(),
   agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "restrict" }),
@@ -114,16 +96,11 @@ export const installTasks = sqliteTable("install_tasks", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
-
-export const taskLogs = sqliteTable(
-  "task_logs",
-  {
-    id: text("id").primaryKey(),
-    taskId: text("task_id").notNull().references(() => installTasks.id, { onDelete: "cascade" }),
-    sequence: integer("sequence").notNull(),
-    level: text("level").notNull(),
-    message: text("message").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  },
-  (table) => [uniqueIndex("task_logs_task_sequence_uq").on(table.taskId, table.sequence)],
-);
+export const taskLogs = sqliteTable("task_logs", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id").notNull().references(() => installTasks.id, { onDelete: "cascade" }),
+  sequence: integer("sequence").notNull(),
+  level: text("level").notNull(),
+  message: text("message").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [uniqueIndex("task_logs_task_sequence_uq").on(table.taskId, table.sequence)]);

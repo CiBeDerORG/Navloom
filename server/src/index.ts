@@ -4,7 +4,10 @@ import { openDatabase } from "./db/client.js";
 
 const config = loadConfig();
 const database = openDatabase(config.DATABASE_URL);
-const app = buildApp({ logger: { level: "info" } });
+const app = buildApp({ logger: { level: "info" } }, {
+  database,
+  secureCookies: config.NODE_ENV === "production",
+});
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
