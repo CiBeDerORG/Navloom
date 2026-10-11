@@ -9,8 +9,6 @@ import { ApiFailure, Access } from "../security/access.js";
 import type { PagePresence } from "./page-presence.js";
 
 const MAX_MESSAGE_BYTES = 64 * 1024;
-const AGENT_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-const CREDENTIAL = /^[A-Za-z0-9_-]{43}$/;
 
 type Session = {
   socket: WebSocket;
