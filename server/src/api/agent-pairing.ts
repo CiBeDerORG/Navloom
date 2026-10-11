@@ -173,7 +173,8 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     }>;
     return { agents: agents.map((agent) => ({
       ...agent,
-      status: agent.revokedAt === null ? (hub.isOnline(agent.id) ? "online" : "offline") : "revoked",
+      status: agent.revokedAt !== null ? "revoked" :
+        (agent.endpointHost && presence?.activePages === 0 ? "paused" : hub.isOnline(agent.id) ? "online" : "offline"),
       ...hub.tasks.getCapabilities(agent.id),
     })) };
   });
@@ -192,7 +193,8 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     if (!agent) throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在");
     return { agent: {
       ...agent,
-      status: agent.revokedAt !== null ? "revoked" : hub.isOnline(agent.id) ? "online" : "offline",
+      status: agent.revokedAt !== null ? "revoked" :
+        (agent.endpointHost && presence?.activePages === 0 ? "paused" : hub.isOnline(agent.id) ? "online" : "offline"),
       ...hub.tasks.getCapabilities(agent.id),
     } };
   });
