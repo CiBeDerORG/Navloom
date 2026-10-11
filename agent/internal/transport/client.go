@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/CiBeDerORG/Navloom/agent/internal/config"
 	"github.com/CiBeDerORG/Navloom/agent/internal/pairing"
+	"github.com/CiBeDerORG/Navloom/agent/internal/probe"
 	"github.com/CiBeDerORG/Navloom/agent/internal/protocol"
 	"github.com/gorilla/websocket"
 )
@@ -117,11 +119,17 @@ func serve(ctx context.Context, conn *websocket.Conn, agentID, version string, i
 	conn.SetPongHandler(func(_ string) error {
 		return conn.SetReadDeadline(time.Now().Add(readTimeout))
 	})
+	var writeMu sync.Mutex
+	write := func(msg protocol.Message) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return writeMessage(conn, msg)
+	}
 	hello, err := protocol.NewHello(agentID, version)
 	if err != nil {
 		return err
 	}
-	if err := writeMessage(conn, hello); err != nil {
+	if err := write(hello); err != nil {
 		return err
 	}
 	started := time.Now()
@@ -130,7 +138,7 @@ func serve(ctx context.Context, conn *websocket.Conn, agentID, version string, i
 		if err != nil {
 			return err
 		}
-		if err := writeMessage(conn, msg); err != nil {
+		if err := write(msg); err != nil {
 			return err
 		}
 		return conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second))
@@ -146,9 +154,26 @@ func serve(ctx context.Context, conn *websocket.Conn, agentID, version string, i
 				readDone <- err
 				return
 			}
-			// Server-to-Agent task commands are deliberately not enabled in this batch.
-			if kind == websocket.TextMessage || kind == websocket.BinaryMessage {
-				readDone <- errors.New("unexpected Server message type")
+			if kind != websocket.TextMessage {
+				_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "text required"), time.Now().Add(time.Second))
+				readDone <- errors.New("non-text task rejected")
+				return
+			}
+			task, err := protocol.DecodeTaskDispatch(data, agentID)
+			if err != nil {
+				_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "task rejected"), time.Now().Add(time.Second))
+				readDone <- errors.New("invalid or unsupported task")
+				return
+			}
+			// Only a fixed read-only capability probe is executable. Docker
+			// start/stop/restart, inventory and Compose deploy remain disabled.
+			capabilities := probe.DiscoverDocker(ctx)
+			result, err := protocol.NewCapabilityResult(agentID, task.TaskID, capabilities)
+			if err == nil {
+				err = write(result)
+			}
+			if err != nil {
+				readDone <- errors.New("capability result delivery failed")
 				return
 			}
 		}
