@@ -29,7 +29,8 @@ const emptyRequest = z.object({}).strict();
 
 function privateHost(host: string): boolean {
   if (isIP(host) === 4) {
-    const [a, b] = host.split(".").map(Number);
+    const [a, rawB] = host.split(".").map(Number);
+    const b = rawB ?? -1;
     return a === 10 || (a === 172 && b >= 16 && b <= 31) ||
       (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
   }
