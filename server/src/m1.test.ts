@@ -85,12 +85,12 @@ test("M1: navigation is independent, ordered and rejects unsafe URLs", async (t)
   assert.equal((await app.inject({ method: "PUT", url: route + "/admin/navigation/order", headers, payload: { groups: [groupId], cards: [{ id: secondId, groupId }, { id: firstId, groupId }] } })).statusCode, 200);
   const read = (await app.inject({ method: "GET", url: route + "/admin/navigation", headers: { cookie } })).json();
   assert.deepEqual(read.cards.map((card: { id: string }) => card.id), [secondId, firstId]);
-  const deletedGroup = await app.inject({ method: "DELETE", url: route + "/admin/navigation/groups/" + groupId, headers });
+  const deletedGroup = await app.inject({ method: "DELETE", url: route + "/admin/navigation/groups/" + groupId, headers: { ...csrf, cookie } });
   assert.equal(deletedGroup.statusCode, 200);
   assert.equal(deletedGroup.json().movedCards, 2);
   const after = (await app.inject({ method: "GET", url: route + "/admin/navigation", headers: { cookie } })).json();
   assert.equal(after.cards.length, 2);
   assert.equal(after.cards.every((card: { groupId: string | null }) => card.groupId === null), true);
-  assert.equal((await app.inject({ method: "DELETE", url: route + "/admin/navigation/cards/" + firstId, headers })).statusCode, 200);
+  assert.equal((await app.inject({ method: "DELETE", url: route + "/admin/navigation/cards/" + firstId, headers: { ...csrf, cookie } })).statusCode, 200);
   assert.equal((await app.inject({ method: "GET", url: route + "/admin/navigation", headers: { cookie } })).json().cards.length, 1);
 });

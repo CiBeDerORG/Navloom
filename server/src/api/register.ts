@@ -25,6 +25,10 @@ export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureC
       }
     }
   });
+  // Protect the entire admin namespace, including routes added in later milestones.
+  app.addHook("onRequest", async (request) => {
+    if (request.url.startsWith("/api/v1/admin/")) access.requireAdmin(request);
+  });
   registerAuth(app, db, access);
   registerNavigation(app, db, access);
 }

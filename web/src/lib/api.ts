@@ -24,7 +24,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
     credentials: "same-origin",
     headers: {
-      ...(method !== "GET" ? { "content-type": "application/json", "x-navloom-csrf": "1" } : {}),
+      ...(method !== "GET" ? { "x-navloom-csrf": "1" } : {}),
+      ...(init.body !== undefined ? { "content-type": "application/json" } : {}),
       ...init.headers,
     },
   });
