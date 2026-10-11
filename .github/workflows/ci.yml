@@ -31,6 +31,17 @@ jobs:
         run: |
           npm run db:migrate
           npm run db:migrate
+      - name: Initialize local M1 test credentials (CLI only)
+        env:
+          NAVLOOM_ADMIN_USERNAME: admin
+          NAVLOOM_ADMIN_PASSWORD: test-admin-password-123
+          NAVLOOM_HOME_PASSPHRASE: test-home-1234
+        run: |
+          npm run admin:init -w @navloom/server
+          if npm run admin:init -w @navloom/server; then
+            echo "Admin initialization must not overwrite an existing administrator"
+            exit 1
+          fi
       - name: Development Server + Web HTTP smoke
         run: |
           set -euo pipefail
@@ -67,6 +78,7 @@ jobs:
           fi
           curl -fsS http://127.0.0.1:5173/admin/login | grep -q Navloom
           curl -fsS http://127.0.0.1:5173/api/v1/system/status | grep -q navloom-server
+          ./scripts/smoke-m1.sh
       - name: Development Compose syntax
         run: docker compose -f compose.dev.yml config --quiet
 
