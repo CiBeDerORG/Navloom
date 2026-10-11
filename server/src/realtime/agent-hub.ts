@@ -17,6 +17,9 @@ type Session = {
   helloReceived: boolean;
   seenMessages: Set<string>;
   pendingProbe: ReturnType<typeof setTimeout> | null;
+  helloTimeout: ReturnType<typeof setTimeout> | null;
+  connectedAt: number;
+  lastPongAt: number | null;
 };
 
 export class AgentHub {
@@ -33,6 +36,18 @@ export class AgentHub {
   isOnline(agentId: string): boolean {
     const session = this.sessions.get(agentId);
     return Boolean(session && session.socket.readyState === WebSocket.OPEN && session.helloReceived);
+  }
+
+  connectionObservation(agentId: string): { connectedAt: number | null; lastPongAt: number | null; handshakePending: boolean } {
+    const session = this.sessions.get(agentId);
+    if (!session || session.socket.readyState !== WebSocket.OPEN) {
+      return { connectedAt: null, lastPongAt: null, handshakePending: false };
+    }
+    return {
+      connectedAt: session.helloReceived ? session.connectedAt : null,
+      lastPongAt: session.lastPongAt,
+      handshakePending: !session.helloReceived,
+    };
   }
 
   requestCapabilityProbe(agentId: string): string {
@@ -72,14 +87,23 @@ export class AgentHub {
     this.disconnect(agentId, 4001, "replaced");
     const session: Session = {
       agentId, socket, lastCommunication: Date.now(), helloReceived: false, seenMessages: new Set(),
-      pendingProbe: null,
+      pendingProbe: null, helloTimeout: null, connectedAt: Date.now(), lastPongAt: null,
     };
     this.sessions.set(agentId, session);
+    // Mutual TLS alone is not a completed Agent protocol session.
+    // An Agent that never sends a valid v2 hello must not occupy this socket indefinitely.
+    session.helloTimeout = setTimeout(() => {
+      if (this.sessions.get(agentId) === session && !session.helloReceived) {
+        this.reject(session, 1008, "hello timeout");
+      }
+    }, 8_000);
+    session.helloTimeout.unref();
     socket.on("pong", () => {
         if (this.sessions.get(agentId) !== session || !session.pendingProbe) return;
         clearTimeout(session.pendingProbe);
         session.pendingProbe = null;
         session.lastCommunication = Date.now();
+        session.lastPongAt = session.lastCommunication;
       });
     socket.on("message", (data, isBinary) => {
       if (this.sessions.get(agentId) !== session) return;
@@ -95,7 +119,9 @@ export class AgentHub {
     if (!session) return;
     this.sessions.delete(agentId);
     if (session.pendingProbe) clearTimeout(session.pendingProbe);
+    if (session.helloTimeout) clearTimeout(session.helloTimeout);
     session.pendingProbe = null;
+    session.helloTimeout = null;
     this.tasks.markAgentUnknown(agentId);
     if (session.socket.readyState === WebSocket.OPEN) session.socket.close(code, reason);
     else session.socket.terminate();
@@ -110,7 +136,9 @@ export class AgentHub {
     if (this.sessions.get(session.agentId) === session) {
       this.sessions.delete(session.agentId);
       if (session.pendingProbe) clearTimeout(session.pendingProbe);
+      if (session.helloTimeout) clearTimeout(session.helloTimeout);
       session.pendingProbe = null;
+      session.helloTimeout = null;
       this.tasks.markAgentUnknown(session.agentId);
     }
   }
@@ -159,6 +187,8 @@ export class AgentHub {
     }
     if (message.type === "hello") {
       session.helloReceived = true;
+      if (session.helloTimeout) clearTimeout(session.helloTimeout);
+      session.helloTimeout = null;
       this.touch(session, message.payload.version);
       // Capability tasks require a separate explicit administrator request.
     } else if (message.type === "task_result") {

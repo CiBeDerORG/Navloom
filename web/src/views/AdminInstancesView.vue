@@ -235,8 +235,8 @@ onUnmounted(() => {
         </div>
       </div>
       <p class="mt-5 text-sm text-slate-400">
-        在设备上设置 <code>NAVLOOM_SERVER_URL=wss://你的域名/agent</code> 和
-        <code>NAVLOOM_AGENT_TOKEN_FILE</code>，通过标准输入执行 <code>navloom-agent -pair</code>。
+        先在 NAS 配置可信私网/EasyTier IP、监听端口及 TLS 证书，再使用一次性令牌进行配对。
+        <code>server_url</code> 仅用于主动配对；正常运行由 Server 主动建立 WSS，Agent 不主动回连。
         完整命令与安全说明见仓库 <code>agent/README.md</code>。
       </p>
     </section>
@@ -269,7 +269,12 @@ onUnmounted(() => {
             <div><dt class="text-slate-400">Agent ID</dt><dd class="break-all font-mono text-xs">{{ selected.id }}</dd></div>
             <div><dt class="text-slate-400">版本</dt><dd>{{ selected.version || "—" }}</dd></div>
             <div><dt class="text-slate-400">登记时间</dt><dd>{{ formatDate(selected.registeredAt) }}</dd></div>
-            <div><dt class="text-slate-400">最后通信</dt><dd>{{ formatDate(selected.lastSeenAt) }}</dd></div>
+            <div><dt class="text-slate-400">私网 WSS 端点</dt><dd class="break-all font-mono text-xs">{{ selected.endpointHost && selected.endpointPort ? selected.endpointHost + ":" + selected.endpointPort : "未配置（需重新配对）" }}</dd></div>
+            <div><dt class="text-slate-400">Agent TLS 证书</dt><dd>{{ selected.certificateConfigured ? "已登记固定信任证书" : "未配置" }}</dd></div>
+            <div><dt class="text-slate-400">协议握手</dt><dd>{{ selected.handshakePending ? "等待 Agent hello" : selected.status === "online" ? "已完成 v2 握手" : "当前无有效握手" }}</dd></div>
+            <div><dt class="text-slate-400">本次连接建立</dt><dd>{{ formatDate(selected.connectedAt) }}</dd></div>
+            <div><dt class="text-slate-400">最近 Pong 检测</dt><dd>{{ formatDate(selected.lastPongAt) }}{{ selected.lastPongAt ? "（仅当前 Server 运行期间）" : "（尚未检测）" }}</dd></div>
+            <div><dt class="text-slate-400">最后业务通信（历史）</dt><dd>{{ formatDate(selected.lastSeenAt) }}</dd></div>
             <div><dt class="text-slate-400">Docker API</dt>
               <dd v-if="selected.capabilities">{{ selected.capabilities.docker.available ? "可连接 · API " + (selected.capabilities.docker.api_version || "未知") : "不可用 · " + (capabilityReason(selected.capabilities.docker.reason)) }}</dd>
               <dd v-else>未探测（不代表可部署）</dd>

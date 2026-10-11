@@ -165,14 +165,16 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
   app.get("/api/v1/admin/agents", async (request) => {
     access.requireAdmin(request);
     const agents = db.sqlite.prepare(
-      "SELECT id, name, version, platform, architecture, registered_at AS registeredAt, last_seen_at AS lastSeenAt, revoked_at AS revokedAt, endpoint_host AS endpointHost, endpoint_port AS endpointPort FROM agents ORDER BY name COLLATE NOCASE ASC, id ASC",
+      "SELECT id, name, version, platform, architecture, registered_at AS registeredAt, last_seen_at AS lastSeenAt, revoked_at AS revokedAt, endpoint_host AS endpointHost, endpoint_port AS endpointPort, tls_cert_fingerprint IS NOT NULL AS certificateConfigured FROM agents ORDER BY name COLLATE NOCASE ASC, id ASC",
     ).all() as Array<{
       id: string; name: string; version: string | null; platform: string | null;
       architecture: string | null; registeredAt: number | null; lastSeenAt: number | null; revokedAt: number | null;
-      endpointHost: string | null; endpointPort: number | null;
+      endpointHost: string | null; endpointPort: number | null; certificateConfigured: number;
     }>;
     return { agents: agents.map((agent) => ({
       ...agent,
+      certificateConfigured: Boolean(agent.certificateConfigured),
+      ...hub.connectionObservation(agent.id),
       status: agent.revokedAt !== null ? "revoked" :
         (agent.endpointHost && presence?.activePages === 0 ? "paused" : hub.isOnline(agent.id) ? "online" : "offline"),
       ...hub.tasks.getCapabilities(agent.id),
@@ -184,15 +186,17 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     const id = idRequest.safeParse(request.params);
     if (!id.success) throw new ApiFailure(400, "INVALID_INPUT", "设备 ID 无效");
     const agent = db.sqlite.prepare(
-      "SELECT id, name, version, platform, architecture, registered_at AS registeredAt, last_seen_at AS lastSeenAt, revoked_at AS revokedAt, endpoint_host AS endpointHost, endpoint_port AS endpointPort FROM agents WHERE id = ?",
+      "SELECT id, name, version, platform, architecture, registered_at AS registeredAt, last_seen_at AS lastSeenAt, revoked_at AS revokedAt, endpoint_host AS endpointHost, endpoint_port AS endpointPort, tls_cert_fingerprint IS NOT NULL AS certificateConfigured FROM agents WHERE id = ?",
     ).get(id.data.id) as {
       id: string; name: string; version: string | null; platform: string | null;
       architecture: string | null; registeredAt: number | null; lastSeenAt: number | null; revokedAt: number | null;
-      endpointHost: string | null; endpointPort: number | null;
+      endpointHost: string | null; endpointPort: number | null; certificateConfigured: number;
     } | undefined;
     if (!agent) throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在");
     return { agent: {
       ...agent,
+      certificateConfigured: Boolean(agent.certificateConfigured),
+      ...hub.connectionObservation(agent.id),
       status: agent.revokedAt !== null ? "revoked" :
         (agent.endpointHost && presence?.activePages === 0 ? "paused" : hub.isOnline(agent.id) ? "online" : "offline"),
       ...hub.tasks.getCapabilities(agent.id),

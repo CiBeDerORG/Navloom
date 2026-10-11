@@ -102,6 +102,8 @@ export type AgentDevice = {
   id: string; name: string; version: string | null; platform: string | null;
   architecture: string | null; registeredAt: number | null; lastSeenAt: number | null;
   revokedAt: number | null; status: "online" | "offline" | "paused" | "revoked";
+  endpointHost: string | null; endpointPort: number | null; certificateConfigured: boolean;
+  connectedAt: number | null; lastPongAt: number | null; handshakePending: boolean;
   capabilities: AgentCapabilities | null; checkedAt: number | null;
 };
 export const getAgents = () => request<{ agents: AgentDevice[] }>("/admin/agents");
