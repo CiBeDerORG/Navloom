@@ -1,8 +1,8 @@
-# Navloom Agent · M2 反向按需 WSS 迁移中
+# Navloom Agent · M2 反向按需 WSS（协议 v2）
 
 **当前开发状态**：Go Agent 已具备私网被动 WSS 监听、双向 TLS 客户端证书固定信任和只读能力探测。Server 按已登录页面在线情况主动建立连接；自动/手动连通性检测仅使用 WebSocket Ping/Pong，不发送周期 JSON 心跳。新架构的隔离 Go↔Node mTLS 联调已进入 CI，**尚未完成 Codex 独立验收**。
 
-> 旧配置（没有 `endpoint_host` 的 Agent）暂时仍走历史 Agent 主动 WSS + JSON 心跳路径，Server 也仍接受旧 `/agent` 入站连接。**迁移完成前项目整体不能保证「无登录页面零 Agent 通信」**；请勿把开发版本直接暴露公网。
+> 旧主动连接已移除：没有私网监听端点及 TLS 的旧 Agent 无法正常启动，Server 也不再提供旧 `/agent` 入站。升级需安全重新配对；浏览器和真实 NAS 的独立验收仍待执行，请勿直接暴露公网。
 
 ## 1. 在 Server 创建客户端 TLS 身份
 
@@ -29,7 +29,7 @@ export AGENT_CLIENT_KEY_FILE="$(pwd)/data/agent-tls/server-client.key"
 
 ```json
 {
-  "server_url": "wss://navloom.example.com/agent",
+  "server_url": "wss://navloom.example.com",
   "agent_name": "nas-1",
   "token_file": "/var/lib/navloom/identity.json",
   "endpoint_host": "10.10.20.30",
@@ -59,3 +59,9 @@ go run ./cmd/navloom-agent -config ./agent-config.json
 - `-check` 只检查配置的 Server TCP/TLS 可达性，不代表反向 Agent WSS 握手成功。仅显式设置 `allow_insecure_dev: true` 且 Server URL 为回环 `ws://` 时允许不加密配对开发。
 
 构建：`go test ./...`、`./scripts/build-linux.sh`。配置字段参考 [config.example.json](./config.example.json)，新架构与未完成项见 [M2 实施记录](../planning/M2-IMPLEMENTATION.md)。
+
+## 旧版 Agent 升级
+
+旧 v1 主动 WSS 身份文件不能静默升级。先停止旧 Agent，安全备份配置和私有凭据；在 Server 管理后台撤销旧设备。配置新的私网监听 IP/端口，生成 Agent TLS 证书，并安全归档旧身份文件（配对命令拒绝覆盖）。管理员生成新的一次性令牌后执行 `-pair`，再启动新版 Agent。重新配对会建立 v2 协议与双向 TLS 信任；旧设备历史数据不会因为撤销而被删除。
+
+无人浏览页面时 Agent 只监听指定私网端口，不主动向 Server 发请求。管理员明确执行的首次配对或 `-check` 属于单次手动操作。页面意外断开后的回收由 Server 与浏览器之间的在线检测处理，并非 Agent 业务心跳。
