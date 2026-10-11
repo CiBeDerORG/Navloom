@@ -13,6 +13,7 @@
 | [DECISIONS.md](./DECISIONS.md) | 已确认决策、建议和待确认事项 |
 | [ROADMAP.md](./ROADMAP.md) | 里程碑、交付顺序和完成条件 |
 | [M0-IMPLEMENTATION.md](./M0-IMPLEMENTATION.md) | M0 工程初始化实施记录与 CI 验收证据 |
+| [M1-IMPLEMENTATION.md](./M1-IMPLEMENTATION.md) | M1 首批认证与导航功能、测试及未完成项 |
 | [TRACEABILITY.md](./TRACEABILITY.md) | 需求 ID → 任务 ID 对照表 |
 | [tasks/README.md](./tasks/README.md) | 任务索引、优先级、状态、执行约定 |
 | [tasks/01-foundation.md](./tasks/01-foundation.md) | 工程基础与数据模型 |

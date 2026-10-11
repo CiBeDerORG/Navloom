@@ -2,7 +2,7 @@
 
 **Navloom** 是面向个人自托管场景的导航优先应用平台。首页只展示用户编排的导航卡片；云端 Server 管理导航、应用实例与多个设备 Agent。Agent 将来负责发现 Docker 容器及执行 Docker Compose 部署。
 
-> **当前状态：M0 工程脚手架已完成（[验收记录](./planning/M0-IMPLEMENTATION.md)），M1 尚未实施。尚未实现首页弱口令、管理员认证、Agent WSS 通信或真实容器管理。不可作为已完成的生产服务部署到公网。**
+> **当前状态：M0 已完成；M1 导航与双层访问控制已实现首批功能，正在验证与完善。M2 Agent WSS、容器池与 Docker 管理尚未实现；生产部署与完整安全审查在 M4，当前版本仅用于本地开发。**
 
 ## 项目结构
 
@@ -31,6 +31,7 @@ cd Navloom
 npm ci
 npm run build:contracts
 npm run db:migrate
+# 在 Server 本机一次性初始化管理员与首页口令（见下文）
 npm run dev
 ```
 
@@ -38,7 +39,24 @@ npm run dev
 - Server 状态接口： http://127.0.0.1:3000/api/v1/system/status
 - 开发模式中 Vite 将 `/api` 代理到本地 Server。
 - 初次启动的 SQLite 文件为 `server/data/navloom.db`，已在 Git 中忽略。
-- **M0 中的后台页面只是无数据的占位页，未实现认证。不要把 M0 部署到公网。**
+- **M1 中首页、管理后台与导航 API 已接入认证，但尚未完成生产 HTTPS/反向代理配置和完整安全审查。不要直接暴露公网。**
+
+### 首次管理员初始化（M1）
+
+先执行 `npm run db:migrate`，再在 **Server 主机终端** 运行以下命令。输入时不会回显口令，也不会把密码放进命令行参数：
+
+```bash
+read -r -p "管理员用户名: " NAVLOOM_ADMIN_USERNAME
+read -r -s -p "管理员密码（至少 12 位）: " NAVLOOM_ADMIN_PASSWORD; echo
+read -r -s -p "首页访问口令（至少 4 位）: " NAVLOOM_HOME_PASSPHRASE; echo
+export NAVLOOM_ADMIN_USERNAME NAVLOOM_ADMIN_PASSWORD NAVLOOM_HOME_PASSPHRASE
+npm run admin:init -w @navloom/server
+unset NAVLOOM_ADMIN_PASSWORD NAVLOOM_HOME_PASSPHRASE NAVLOOM_ADMIN_USERNAME
+```
+
+该示例适用于 Bash 终端；初始化只允许执行一次，不能覆盖已有管理员。首页默认需要弱口令；浏览器验证后使用长期 HttpOnly Cookie 记住权限。管理员账号密码独立，点击首页「管理后台」后登录。管理员可在后台辅助「设置」中修改口令和撤销浏览器凭据。
+
+使用 Docker 开发环境时，需在容器内运行迁移与管理员初始化，或者让 CLI 连接相同的 SQLite 数据文件。生产初始化、Caddy/HTTPS 与备份说明将在 M4 提供。
 
 ### 开发 Docker Compose
 
@@ -66,7 +84,7 @@ npm run build             # 构建 contracts -> server -> web
 npm run typecheck         # TypeScript / Vue 类型检查
 npm run lint:ts           # ESLint
 npm run format:check      # Prettier
-npm run test:server       # Fastify 与协议契约测试
+npm run test:server       # Fastify、认证、导航与协议契约测试
 npm run db:migrate        # 应用 SQLite 迁移（可重复运行）
 npm run lint:go           # Go gofmt 检查
 npm run test:go           # Go 单元测试
@@ -78,7 +96,8 @@ npm run build:agent       # 构建 Linux Agent（当前平台 Go 编译）
 - Server 只运行在云端；Agent 将来通过独立认证的 WSS 主动连接，EasyTier 仅提供网络连通性。
 - **导航卡片独立于容器/应用**，删除导航不会操作 Docker。
 - Compose `up` 退出码 0 定义为“部署成功”，不等于健康或网页可达。
-- M0 只提供 Server 自身状态接口；不提供管理员或 Docker 操作 API。
+- M1 已提供首页只读导航和管理员认证/导航管理 API，未提供 Agent 或 Docker 操作 API。
+- 首页 Cookie 只能读取导航；所有管理 API 必须具有独立管理员会话及 CSRF 保护。
 - 真实密码、Agent 令牌、数据库和环境文件不得提交到 Git。
 
 完整范围、待确认决策与任务：[planning/PRD.md](./planning/PRD.md)、[planning/DECISIONS.md](./planning/DECISIONS.md)、[planning/tasks/01-foundation.md](./planning/tasks/01-foundation.md)。
