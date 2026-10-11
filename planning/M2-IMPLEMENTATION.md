@@ -1,6 +1,6 @@
 # M2 · Agent 接入与容器池（实施中）
 
-> 状态：**首批安全配对 CI 已通过；第二批 WSS/Go 自动重连/心跳代码已提交，等待本批 CI 和 Codex 独立联调**。M1 回归工作暂时独立保留，不在此阶段改写 M1 验收结论。
+> 状态：**首批安全配对 CI 已通过；第二批 WSS/Go 自动重连/心跳代码已提交，本批 4/4 CI 作业已通过，等待 Codex 独立联调**。M1 回归工作暂时独立保留，不在此阶段改写 M1 验收结论。
 
 ## 本轮交付（Agent 安全接入基线）
 
@@ -22,13 +22,15 @@
 - 使用 `@fastify/websocket`、`ws`、`gorilla/websocket`，依赖锁文件已由一次性 CI 工作流生成；临时工作流已删除。
 - **安全边界**：生产 HTTP Server 仅监听回环地址，经可信 HTTPS/WSS 反向代理暴露 `/agent`；不能将明文 HTTP 端口直接开放公网。配对成功或 Agent 在线均不代表 Docker 可用。
 - **验收纪律**：本批实现不等于通过验收；全部步骤只更新 [原 Codex 统一回归文件](./M1-CODEX-REGRESSION.md) 的 C/D 组，保留 Codex `NOT_RUN` 直至实际测试。
+- [CI 38144150805](https://github.com/CiBeDerORG/Navloom/actions/runs/38144150805) **4/4 作业通过**，新增 `scripts/smoke-m2.mjs` 在隔离环境启动两台真实 Go Agent ↔ Node WSS，验证在线、断线重连、持久身份、撤销与隔离；这不等于 Codex 独立验收。
+
 ## 尚未完成与状态纪律
 
 - **T-034**：身份持久化和唯一约束已实现；WSS 重连代码已具备，仍须 Codex 双端联调同一设备 ID 后才能完全验收。
 - **T-035**：签发/消费/限流/审计路径已实现，CI 已通过，**已按任务原文验收**。
 - **T-036**：Go 配对和安全保存已实现；WSS 重连与未配对拒绝已具备代码，待 Codex 端到端验证。
 - **T-041/T-042/T-043**：设备 API/UI 和数据库撤销已开始；在线状态与撤销主动断线已具备代码；T-042 容器池筛选仍依赖 T-053，完整验收待 Codex。
-- **T-037～T-040**：WSS、Go 重连、心跳和协议基础已提交，等待 CI 与 Codex 联调；T-039 任务消息关联仍依赖 T-044。**T-044～T-059**：任务路由、Docker 发现、容器池、实例与操作尚未实现，不得标记通过。
+- **T-037～T-040**：WSS、Go 重连、心跳和协议基础已提交，自动化 CI 已通过，等待 Codex 独立联调；T-039 任务消息关联仍依赖 T-044。**T-044～T-059**：任务路由、Docker 发现、容器池、实例与操作尚未实现，不得标记通过。
 - Q-09「首次配对流程」仍是**建议**的一次性令牌方案；本轮作为可回滚的实现基线，不能把它写成用户已确认决策。
 
 ## Codex 验收统一交接
@@ -60,4 +62,5 @@ npm run test:go
 ## 自动化验收证据
 
 - [CI 38142225822](https://github.com/CiBeDerORG/Navloom/actions/runs/38142225822)：Web + Server + SQLite、Go Agent、Local Docker Compose startup **3/3 成功**。
-- 此 CI 不代表真实 NAS 上的 WSS/Agent 联调，也不代表 M2 其他任务完成。
+- [CI 38144150805](https://github.com/CiBeDerORG/Navloom/actions/runs/38144150805)：Web + Server + SQLite、Go Agent、Local Docker Compose startup、M2 Go-to-Node WSS integration **4/4 成功**。双 Go Agent 真实进程联调在临时 SQLite/回环网络进行。
+- 上述 CI 不代表真实 NAS 或生产 TLS 反向代理验收，也不代表 M2 其他任务完成。
