@@ -35,7 +35,7 @@ async function load() {
   }
 }
 
-async function perform(action: () => Promise<void>, success: string) {
+async function perform(action: () => Promise<unknown>, success: string) {
   if (busy.value) return;
   busy.value = true;
   error.value = "";
