@@ -67,7 +67,7 @@ func run(args []string) int {
 			log.Error("cannot pair this Agent", "error", err)
 			return 1
 		}
-		fmt.Fprintln(os.Stderr, "Paste the one-time pairing token via stdin (input is not echoed by Navloom):")
+		fmt.Fprintln(os.Stderr, "Provide the one-time token on stdin (use shell read -s to prevent terminal echo):")
 		token, err := pairing.ReadToken(os.Stdin)
 		if err != nil {
 			log.Error("cannot read pairing token", "error", err)
