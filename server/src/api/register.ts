@@ -29,6 +29,14 @@ export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureC
   app.addHook("onRequest", async (request) => {
     if (request.url.startsWith("/api/v1/admin/")) access.requireAdmin(request);
   });
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (/^\\/api\\/v1\\/(auth|admin|home)\\//.test(request.url)) {
+      reply.header("Cache-Control", "no-store");
+      reply.header("X-Content-Type-Options", "nosniff");
+      reply.header("Referrer-Policy", "no-referrer");
+    }
+    return payload;
+  });
   registerAuth(app, db, access);
   registerNavigation(app, db, access);
 }

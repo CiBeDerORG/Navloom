@@ -1,13 +1,17 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { logoutAdmin } from "../lib/api";
 
 const router = useRouter();
+const logoutError = ref("");
 async function logout() {
+  logoutError.value = "";
   try {
     await logoutAdmin();
-  } finally {
     await router.replace("/admin/login");
+  } catch (cause) {
+    logoutError.value = cause instanceof Error ? cause.message : "退出失败，请重试";
   }
 }
 </script>
@@ -28,6 +32,7 @@ async function logout() {
       </div>
     </header>
     <main class="mx-auto max-w-6xl space-y-6 px-5 py-10">
+      <p v-if="logoutError" role="alert" class="text-sm text-rose-300">{{ logoutError }}</p>
       <slot />
     </main>
   </div>

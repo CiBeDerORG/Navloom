@@ -79,7 +79,8 @@ export function registerAuth(app: FastifyInstance, db: DatabaseConnection, acces
     }
     const nextHash = await hashPassword(newPassword);
     db.sqlite.transaction(() => {
-      db.sqlite.prepare("UPDATE admin_users SET password_hash = ? WHERE id = ? AND password_hash = ?").run(nextHash, admin.id, row.hash);
+      const updated = db.sqlite.prepare("UPDATE admin_users SET password_hash = ? WHERE id = ? AND password_hash = ?").run(nextHash, admin.id, row.hash);
+      if (!updated.changes) throw new ApiFailure(409, "PASSWORD_CHANGED", "密码已发生变化，请重新登录");
       db.sqlite.prepare("DELETE FROM admin_sessions WHERE admin_user_id = ?").run(admin.id);
     })();
     access.logoutAdmin(request, reply);
