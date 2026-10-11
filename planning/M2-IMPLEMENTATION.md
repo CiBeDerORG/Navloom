@@ -112,3 +112,5 @@ npm run test:go
 
 - 当配置 `endpoint_host`/`endpoint_port` 时，Go Agent 改为在可信私网/EasyTier IP 上监听 TLS 1.3 WSS `/agent`，**不主动连接、心跳或重连**。仅接受配对时固定信任的 Server 客户端证书（精确 DER 匹配），检查 Agent ID 和协议版本；不接受浏览器 Origin；每台 Agent 最多一个已认证 WSS；收到任务时只执行现有只读能力探测；Server Ping 由 WebSocket 协议自动回复 Pong。
 - 未配置反向端点的旧 Agent 暂时走旧连接路径，待 T-037/T-040 完整迁移后删除；因此**项目整体尚未达到零通信目标**。Server 主动 WSS 客户端和全局已登录页面调度仍待开发。
+
+- Go 被动 WSS 隔离测试覆盖无客户端证书/伪造证书拒绝、错误 Agent ID 拒绝、重复 WSS 拒绝、只读任务回传、Ping/Pong 和无周期 JSON heartbeat；通过本地 TLS 测试服务，不连接真实 NAS。
