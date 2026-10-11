@@ -130,14 +130,14 @@ npm run dev
 
 ## C. M2 当前代码验收（6 项：1 项已由 CI 验收，5 项待完整验收）
 
-> **当前实现基线**：Agent 配对数据库迁移 \`0002_m2_agent_pairing.sql\`、Server \`agent-pairing.ts\`、Go \`internal/pairing\` 与 \`-pair\` CLI、\`/admin/instances\` 的设备管理 UI。CI [38142316871](https://github.com/CiBeDerORG/Navloom/actions/runs/38142316871) 的 **Web + Server + SQLite / Go Agent / Local Docker Compose startup 三项成功**，只作为自动化证据；Codex 独立复核尚未执行。相关提交：\`75e98ef\`、\`6df5d2a\`、\`6bf0f83\`、\`a8aeedc\`、\`63e7edc\`。
+> **当前实现基线**：Agent 配对数据库迁移 `0002_m2_agent_pairing.sql`、Server `agent-pairing.ts`、Go `internal/pairing` 与 `-pair` CLI、`/admin/instances` 的设备管理 UI。CI [38142316871](https://github.com/CiBeDerORG/Navloom/actions/runs/38142316871) 的 **Web + Server + SQLite / Go Agent / Local Docker Compose startup 三项成功**，只作为自动化证据；Codex 独立复核尚未执行。相关提交：`75e98ef`、`6df5d2a`、`6bf0f83`、`a8aeedc`、`63e7edc`。
 
 ### C 组执行环境与纪律
 
 - **只使用本地隔离 Server、独立 SQLite、回环测试 HTTP 及测试用 Agent 身份**。除非用户另行授权，不连接真实 NAS、Docker Socket 或公网 Server；不得把设备凭据、一次性令牌、Cookie、数据库原文件或日志中的秘密提交 Git。
 - 先运行以下命令，记录退出码、执行环境与 CI 链接。M1 与 M2 可共享本地测试环境，但测试数据必须隔离：
 
-\`\`\`bash
+```bash
 npm ci
 npm run build
 npm run typecheck
@@ -147,45 +147,45 @@ npm run test:go
 # 在临时 DATABASE_URL 指向的独立 SQLite 上重复运行迁移
 npm run db:migrate
 npm run db:migrate
-\`\`\`
+```
 
-- 在本地开发 Server 创建测试管理员（使用 README 的 \`admin:init\` 安全交互流程），准备「未登录」「只有首页 Cookie」「管理员 Cookie」三组请求上下文；如需测试 Go CLI 配对，使用回环测试 Server/本地 TLS 测试服务及临时 \`token_file\`，不得用生产设备凭据。
-- **WSS 尚未实现**：现在的设备列表显示 \`offline\` 是预期；配对成功不代表已建立 WSS、Docker 可用或在线。任何依赖真实重连、在线状态、即时断开的完整验收保持阻塞。
+- 在本地开发 Server 创建测试管理员（使用 README 的 `admin:init` 安全交互流程），准备「未登录」「只有首页 Cookie」「管理员 Cookie」三组请求上下文；如需测试 Go CLI 配对，使用回环测试 Server/本地 TLS 测试服务及临时 `token_file`，不得用生产设备凭据。
+- **WSS 尚未实现**：现在的设备列表显示 `offline` 是预期；配对成功不代表已建立 WSS、Docker 可用或在线。任何依赖真实重连、在线状态、即时断开的完整验收保持阻塞。
 
 ### C1 · T-034｜Agent 身份与设备持久化模型 · 部分实现，完整验收 BLOCKED_WSS
 
-- 检查 SQLite \`agents\` 的唯一 ID、名称、凭据摘要、注册/撤销时间、版本/平台/架构与最近心跳字段；增量迁移在旧数据上可重复运行，不丢失 M1 记录。
+- 检查 SQLite `agents` 的唯一 ID、名称、凭据摘要、注册/撤销时间、版本/平台/架构与最近心跳字段；增量迁移在旧数据上可重复运行，不丢失 M1 记录。
 - 验证重复 ID 和重复非空凭据摘要受约束；撤销后状态重启仍保留，设备列表不得泄露凭据摘要。
-- **待 WSS 完成**：使用相同身份断线重连，不产生第二条设备记录，\`lastSeenAt\` 可随心跳更新。未通过前**不得勾选 T-034**。
+- **待 WSS 完成**：使用相同身份断线重连，不产生第二条设备记录，`lastSeenAt` 可随心跳更新。未通过前**不得勾选 T-034**。
 
 ### C2 · T-035｜Server 一次性接入令牌 · 已自动化验收，Codex 独立复核 NOT_RUN
 
 - 管理员可签发 10 分钟有效、一次性随机令牌；未登录/仅首页 Cookie、缺少 CSRF 或跨站 Origin 的请求不得签发；同时待用令牌上限与错误提示符合当前实现。
 - 使用有效令牌配对第一台 Agent 成功，再次使用同一令牌、过期令牌、格式错误令牌均拒绝；错误响应不暴露令牌是否存在；重复失败触发限流。
 - 数据库只保存令牌 SHA-256 摘要，设备长期凭据也只存摘要；日志/列表/错误消息不含令牌明文。审计包含签发、成功、拒绝，不包含秘密。
-- **已勾选依据**：\`server/src/m2-pairing.test.ts\`、CI [38142225822](https://github.com/CiBeDerORG/Navloom/actions/runs/38142225822) 和 [Agent 任务](./tasks/04-agent.md)。Codex 复核若发现缺陷，应标记 \`FAIL\`、附证据并修复；不要仅因已有勾选就预填 \`PASS\`。
+- **已勾选依据**：`server/src/m2-pairing.test.ts`、CI [38142225822](https://github.com/CiBeDerORG/Navloom/actions/runs/38142225822) 和 [Agent 任务](./tasks/04-agent.md)。Codex 复核若发现缺陷，应标记 `FAIL`、附证据并修复；不要仅因已有勾选就预填 `PASS`。
 
 ### C3 · T-036｜Go Agent 首次配对与私有凭据 · 部分实现，完整验收 BLOCKED_WSS
 
-- 运行 \`cd agent && go test ./...\`；用本地 Server/httptest 验证 \`-pair\` 从标准输入读取令牌，成功返回 Agent UUID + 独立凭据并保存 \`0600\` 私有文件；重复配对拒绝覆盖，格式错误和过期令牌有安全提示。
-- 验证生产 URL 必须 \`wss://\` 并校验 TLS，只有显式开发开关 + loopback 可使用 \`ws://\`；拒绝 HTTP 重定向，不在命令行参数、普通日志或异常消息中输出令牌/凭据。
+- 运行 `cd agent && go test ./...`；用本地 Server/httptest 验证 `-pair` 从标准输入读取令牌，成功返回 Agent UUID + 独立凭据并保存 `0600` 私有文件；重复配对拒绝覆盖，格式错误和过期令牌有安全提示。
+- 验证生产 URL 必须 `wss://` 并校验 TLS，只有显式开发开关 + loopback 可使用 `ws://`；拒绝 HTTP 重定向，不在命令行参数、普通日志或异常消息中输出令牌/凭据。
 - **待 WSS 完成**：正常启动从私有文件加载同一身份自动重连；未配对 Agent 不可建立受信会话或接收命令。此前**不得勾选 T-036**。
 
 ### C4 · T-041｜Agent 列表、详情与重命名 API · 部分实现，完整验收 BLOCKED_WSS
 
-- 只有管理员 Cookie 能访问 \`GET /api/v1/admin/agents\`、\`PATCH /api/v1/admin/agents/:id\`；未登录/首页 Cookie 拒绝；重命名刷新/Server 重启后仍在，非法 ID、空名称与撤销设备修改得到可理解错误。
+- 只有管理员 Cookie 能访问 `GET /api/v1/admin/agents`、`PATCH /api/v1/admin/agents/:id`；未登录/首页 Cookie 拒绝；重命名刷新/Server 重启后仍在，非法 ID、空名称与撤销设备修改得到可理解错误。
 - 列表返回 ID、名称、版本、平台、架构、登记/最近通信/撤销时间及状态，**不得包含凭据摘要**；离线设备仍保留历史记录。
 - **待 WSS 完成**：列表/详情反映真实在线状态、最近心跳、连接断开后的离线；目前一律显示离线不能当成实时状态通过。
 
 ### C5 · T-042｜应用实例管理内设备 UI · 部分实现，完整验收 BLOCKED_WSS
 
-- 浏览器登录管理员后打开 \`/admin/instances\`：只有「导航页管理」「应用实例管理」两个业务主模块；可生成一次性令牌，看到到期时间、复制与关闭显示，刷新后不再次展示旧令牌。
+- 浏览器登录管理员后打开 `/admin/instances`：只有「导航页管理」「应用实例管理」两个业务主模块；可生成一次性令牌，看到到期时间、复制与关闭显示，刷新后不再次展示旧令牌。
 - 配对后刷新列表，选择设备查看 ID/版本/登记时间，重命名后保留；撤销按钮有确认，取消不应生效，确认后状态变为「已撤销」；错误/空状态/窄屏可读，不能泄露秘密。
 - **待 WSS/容器池完成**：设备在线/离线状态、Agent 筛选与按 Agent 切换管理视图真实可用；不能将现有设备选择按钮误认作完整容器池筛选。不得提前勾选 T-042。
 
 ### C6 · T-043｜Agent 撤销凭据与断开连接 · 部分实现，完整验收 BLOCKED_WSS
 
-- 管理员撤销后 \`revoked_at\` 持久化；\`verifyAgentCredential\` 对旧凭据返回拒绝，重复撤销和无权限撤销不会成功；设备历史记录仍可查，审计事件不含凭据。
+- 管理员撤销后 `revoked_at` 持久化；`verifyAgentCredential` 对旧凭据返回拒绝，重复撤销和无权限撤销不会成功；设备历史记录仍可查，审计事件不含凭据。
 - **待 WSS 完成**：撤销**正在连接**的设备后，Server 必须主动关闭该连接，不能继续接收/执行任务，旧凭据重连被拒绝。仅数据库撤销不能视为全部验收。
 
 ### C 组跨边界安全回归
@@ -196,7 +196,7 @@ npm run db:migrate
 
 ## D. M2 后续验收登记（20 项：尚未实现，不要求 Codex 现在测试）
 
-> 这些任务**统一登记在本文件**，以免下一轮再次创建单独 Codex 验收单。当前状态统一为 \`NOT_IMPLEMENTED\`；每完成一批代码，再将对应条目升级为可执行的测试步骤。不要用 mock 通过代替真实 Agent/Docker 联调。
+> 这些任务**统一登记在本文件**，以免下一轮再次创建单独 Codex 验收单。当前状态统一为 `NOT_IMPLEMENTED`；每完成一批代码，再将对应条目升级为可执行的测试步骤。不要用 mock 通过代替真实 Agent/Docker 联调。
 
 | 任务 | 待实现能力 | 完整验收关键条件 |
 | --- | --- | --- |
@@ -221,7 +221,7 @@ npm run db:migrate
 | T-058 | 容器日志查询 | 管理员权限、限制行数/大小、断线处理、敏感信息保护 |
 | T-059 | 容器池综合回归 | 已有/外部/停止/Compose 容器、断线、重建、权限、操作、导航独立性 |
 
-**联调门槛**：T-037～T-040 可在本地隔离环境先做 WSS 双端联调；T-048～T-059 需要明确授权的测试 Docker 环境与至少两台隔离 Agent。M2 未达到这些条件前，M1 的 T-028～T-031/T-033 继续 \`BLOCKED_M2\`。任何新测试都不得默认为允许访问真实 NAS 或公网。
+**联调门槛**：T-037～T-040 可在本地隔离环境先做 WSS 双端联调；T-048～T-059 需要明确授权的测试 Docker 环境与至少两台隔离 Agent。M2 未达到这些条件前，M1 的 T-028～T-031/T-033 继续 `BLOCKED_M2`。任何新测试都不得默认为允许访问真实 NAS 或公网。
 
 ## 统一验收结果与交付格式（Codex 填写）
 
