@@ -24,7 +24,7 @@ func reason(value string) *string { return &value }
 func DiscoverDocker(ctx context.Context) protocol.Capabilities {
 	result := protocol.Capabilities{
 		Platform: runtime.GOOS, Architecture: runtime.GOARCH,
-		Docker: protocol.DockerCapability{Reason: reason("daemon_unreachable")},
+		Docker:  protocol.DockerCapability{Reason: reason("daemon_unreachable")},
 		Compose: protocol.ComposeCapability{Reason: reason("compose_unavailable")},
 	}
 	result.Docker = detectEngine(ctx)
@@ -64,7 +64,7 @@ func detectEngineAt(ctx context.Context, socket string) protocol.DockerCapabilit
 	defer cancel()
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{Timeout: 2*time.Second}).DialContext(ctx, "unix", socket)
+			return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", socket)
 		},
 		DisableKeepAlives: true,
 	}
@@ -88,7 +88,9 @@ func detectEngineAt(ctx context.Context, socket string) protocol.DockerCapabilit
 			return protocol.DockerCapability{Reason: reason("daemon_unreachable")}
 		}
 		if path == "/version" {
-			var version struct { APIVersion string `json:"ApiVersion"` }
+			var version struct {
+				APIVersion string `json:"ApiVersion"`
+			}
 			if json.Unmarshal(body, &version) != nil || len(version.APIVersion) == 0 || len(version.APIVersion) > 40 {
 				return protocol.DockerCapability{Reason: reason("version_unavailable")}
 			}

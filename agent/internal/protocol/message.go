@@ -113,35 +113,34 @@ func NewHello(agentID, version string) (Message, error) {
 	return message, nil
 }
 
-
 type CapabilityState struct {
-	Available bool    `json:"available"`
+	Available  bool    `json:"available"`
 	APIVersion *string `json:"api_version,omitempty"`
-	Version *string    `json:"version,omitempty"`
-	Reason *string     `json:"reason"`
+	Version    *string `json:"version,omitempty"`
+	Reason     *string `json:"reason"`
 }
 
 type DockerCapability struct {
-	Available bool    `json:"available"`
+	Available  bool    `json:"available"`
 	APIVersion *string `json:"api_version"`
-	Reason *string     `json:"reason"`
+	Reason     *string `json:"reason"`
 }
 
 type ComposeCapability struct {
 	Available bool    `json:"available"`
-	Version *string    `json:"version"`
-	Reason *string     `json:"reason"`
+	Version   *string `json:"version"`
+	Reason    *string `json:"reason"`
 }
 
 type Capabilities struct {
-	Platform string `json:"platform"`
-	Architecture string `json:"architecture"`
-	Docker DockerCapability `json:"docker"`
-	Compose ComposeCapability `json:"compose"`
+	Platform     string            `json:"platform"`
+	Architecture string            `json:"architecture"`
+	Docker       DockerCapability  `json:"docker"`
+	Compose      ComposeCapability `json:"compose"`
 }
 
 type taskDispatchPayload struct {
-	Operation string `json:"operation"`
+	Operation string          `json:"operation"`
 	Arguments json.RawMessage `json:"arguments"`
 }
 
@@ -186,8 +185,8 @@ func NewCapabilityResult(agentID, taskID string, capabilities Capabilities) (Mes
 		return Message{}, err
 	}
 	payload, err := json.Marshal(struct {
-		Success bool `json:"success"`
-		ExitCode *int `json:"exit_code"`
+		Success      bool         `json:"success"`
+		ExitCode     *int         `json:"exit_code"`
 		Capabilities Capabilities `json:"capabilities"`
 	}{Success: true, Capabilities: capabilities})
 	if err != nil {

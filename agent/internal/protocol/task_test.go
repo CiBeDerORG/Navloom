@@ -12,12 +12,12 @@ const validTask = "de57a2f3-38da-4cb7-a676-81b3950b9701"
 func taskJSON(agent, operation string, args any) []byte {
 	data, _ := json.Marshal(map[string]any{
 		"protocol_version": Version,
-		"message_id": "a57be91b-cbf5-4c84-93cb-b07c126bb18a",
-		"agent_id": agent,
-		"task_id": validTask,
-		"sent_at": time.Now().UTC().Format(time.RFC3339),
-		"type": "task_dispatch",
-		"payload": map[string]any{"operation": operation, "arguments": args},
+		"message_id":       "a57be91b-cbf5-4c84-93cb-b07c126bb18a",
+		"agent_id":         agent,
+		"task_id":          validTask,
+		"sent_at":          time.Now().UTC().Format(time.RFC3339),
+		"type":             "task_dispatch",
+		"payload":          map[string]any{"operation": operation, "arguments": args},
 	})
 	return data
 }
@@ -45,7 +45,7 @@ func TestCapabilityResultHasCorrelatedTaskID(t *testing.T) {
 	why := "socket_missing"
 	caps := Capabilities{
 		Platform: "linux", Architecture: "amd64",
-		Docker: DockerCapability{Reason: &why},
+		Docker:  DockerCapability{Reason: &why},
 		Compose: ComposeCapability{Reason: &why},
 	}
 	msg, err := NewCapabilityResult(validAgent, validTask, caps)
