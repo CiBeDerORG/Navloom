@@ -1,8 +1,8 @@
 # M2 · Agent 接入与容器池（T-036 起架构重做）
 
-> **架构重做决定（2026-10-11）**：用户要求 **T-036～T-059 全部按反向按需 WSS 重新实现和验收**，T-034/T-035 既有身份/令牌成果保留。以下“第二批/第三批”均为**历史旧架构交付记录，不代表新方案已完成**。当前代码仍含 Agent 主动 WSS 和 15 秒业务心跳，替换完成前不可声称满足“0 已登录页面 = 0 Agent↔Server 通信”。
+> **架构重做决定（2026-10-11）**：用户要求 **T-036～T-059 全部按反向按需 WSS 重新实现和验收**，T-034/T-035 既有身份/令牌成果保留。以下“第二批/第三批”均为**历史旧架构交付记录，不代表新方案已完成**。目前运行路径已移除旧 Agent 主动 WSS、Server /agent 入站及 JSON heartbeat；真实浏览器、异常断线和包级零流量的独立验收仍待执行。
 
-> 状态：**首批安全配对 CI 已通过；第二批 WSS/Go 自动重连/心跳代码已提交，本批 4/4 CI 作业已通过，等待 Codex 独立联调**。M1 回归工作暂时独立保留，不在此阶段改写 M1 验收结论。
+> 当前状态：**反向 WSS v2、双向 TLS 与两台真实 Go Agent 的隔离 CI 已 4/4 通过；Codex 独立及真实 NAS 验收尚未执行**。M1 回归工作暂时独立保留，不在此阶段改写 M1 验收结论。
 
 ## 本轮交付（Agent 安全接入基线）
 
@@ -138,3 +138,12 @@ npm run test:go
 - [GitHub Actions 38155682480](https://github.com/CiBeDerORG/Navloom/actions/runs/38155682480)：**4/4 作业通过**，其中 `scripts/smoke-m2-reverse.mjs` 在 CI runner 的隔离私网接口上启动**真实 Go 被动 Agent**、**真实 Node 主动 Server**，由 OpenSSL 创建 Server mTLS 客户端证书、Go CLI 生成 Agent 私钥/证书并一次性配对，验证「无页面不连接」「首个管理员页面建立 WSS」「Ping/Pong 不更新 SQLite last_seen_at」「管理员手动只读任务成功」「首页+管理员两页共享连接」「最后页面离开停止通信」「页面重新打开恢复连接」。
 - 这条 CI 同时运行旧主动 WSS 两 Agent 回归，以便迁移期间发现兼容性回归。**不等于旧路径已移除，不等于真实 NAS 环境或 Codex 独立验收**；E 组 T-036～T-059 仍全部 `NOT_RUN`。
 - 下一步优先移除旧 Server `/agent` 入站和 Agent 无反向端点时的主动 WSS 回退，并将旧集成测试替换为新架构的双 Agent/撤销/重连/异常断开回归；随后验证 0 页面严格无 Agent 网络流量和异常浏览器退出的有限探测延迟。
+
+## T-037～T-047 旧路径退役与双 Agent v2 联调（2026-10-12）
+
+- [CI 38159332832](https://github.com/CiBeDerORG/Navloom/actions/runs/38159332832) **4/4 通过**：Node/Web/SQLite、Go、开发 Compose、真实 Node Server ↔ 两台被动 Go Agent 的私网 mTLS 联调。
+- 删除旧 Go 主动 WSS 客户端及测试、Server `/agent` 入站路由、旧主动双 Agent 冒烟脚本；Agent 没有反向监听端点时直接拒绝正常启动，不再回退旧模式。
+- Agent 信封协议升级为 v2；删除 Go/TypeScript 的 JSON heartbeat、旧 v1 心跳 fixtures，改用版本化 hello 和显式任务结果。Server 唯一 Ping/Pong 只检查 WSS 连接，不周期写 SQLite。
+- 集成 CI 覆盖：仅普通首页口令导航页也能激活两台 Agent；多个已登录页面共享连接；管理员手动 Ping 不写最近通信时间；A/B 只读任务隔离；B 停止/重启而 A 不受影响；A 撤销后不再重连；最后页面关闭后冻结最近状态；新页面进入可恢复未撤销设备；旧 `/agent` Server 路由返回 404。
+- 旧主动式设备须停止服务、备份并归档旧身份文件、撤销旧设备后按新反向 mTLS 重新配对，详见 `agent/README.md`。
+- **不得误标验收**：本 CI 不等于真实 NAS 抓包、浏览器交互或 Codex 独立验收，异常关闭页面的回收时间、证书轮换及容器操作仍需按 T-036～T-059 正式验证。
