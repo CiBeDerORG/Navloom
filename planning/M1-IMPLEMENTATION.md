@@ -26,7 +26,7 @@
 
 ## Codex 回归交接
 
-未验收的 14 项任务、真实浏览器回归步骤、M2 阻塞条件和结果模板见 [M1-CODEX-REGRESSION.md](./M1-CODEX-REGRESSION.md)。
+未验收的 14 项任务、真实浏览器回归步骤、M2 阻塞条件和结果模板，统一交给 Codex 在 [M1-CODEX-REGRESSION.md](./M1-CODEX-REGRESSION.md) 执行与记录。**同一文件也已汇总 M2 的验收任务**，后续不另建 Codex 验收清单。
 
 ## 尚未验收/后续依赖
 
