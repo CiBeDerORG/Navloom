@@ -77,7 +77,7 @@ export class ReverseAgentDialer {
         "X-Navloom-Agent-Id": agentId,
         "X-Navloom-Protocol-Version": String(AGENT_PROTOCOL_VERSION),
       },
-      checkServerIdentity: (hostname, peer) => {
+      checkServerIdentity: (_hostname, peer) => {
         const mismatch = checkServerIdentity(row.endpointHost, peer);
         if (mismatch) return mismatch;
         if (!peer.raw || createHash("sha256").update(peer.raw).digest("hex") !== row.tlsCertFingerprint) {
