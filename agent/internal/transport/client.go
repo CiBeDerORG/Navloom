@@ -19,6 +19,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var errTaskRejected = errors.New("Agent rejected unsupported task")
+
 const (
 	defaultHeartbeat = 15 * time.Second
 	defaultBackoff   = time.Second
@@ -56,6 +58,9 @@ func run(ctx context.Context, cfg config.Config, identity pairing.Identity, vers
 			log.Info("Agent WSS connected", "agent_id", identity.AgentID)
 			started := time.Now()
 			err = serve(ctx, conn, identity.AgentID, version, opts.heartbeat)
+			if errors.Is(err, errTaskRejected) {
+				log.Warn("Agent command rejected by allowlist", "agent_id", identity.AgentID)
+			}
 			if time.Since(started) >= 2*defaultHeartbeat {
 				backoff = opts.minBackoff
 			}
@@ -162,7 +167,7 @@ func serve(ctx context.Context, conn *websocket.Conn, agentID, version string, i
 			task, err := protocol.DecodeTaskDispatch(data, agentID)
 			if err != nil {
 				_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "task rejected"), time.Now().Add(time.Second))
-				readDone <- errors.New("invalid or unsupported task")
+				readDone <- errTaskRejected
 				return
 			}
 			// Only a fixed read-only capability probe is executable. Docker
