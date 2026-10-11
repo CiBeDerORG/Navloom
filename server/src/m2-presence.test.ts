@@ -23,14 +23,17 @@ async function connect(url: string, cookie: string, origin: string): Promise<Web
   });
 }
 
-async function setup(t: import("node:test").TestContext) {
+async function setup(
+  t: import("node:test").TestContext,
+  options: { presenceSweepIntervalMs?: number; presencePongTimeoutMs?: number } = {},
+) {
   const db = openDatabase(":memory:");
   migrate(db.orm, { migrationsFolder: resolve(process.cwd(), "drizzle") });
   db.sqlite.prepare("INSERT INTO admin_users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)")
     .run(randomUUID(), "admin", await hashPassword("test-admin-password-123"), Date.now());
   db.sqlite.prepare("INSERT INTO home_access_settings (id, password_hash, credential_version, updated_at) VALUES ('global', ?, 1, ?)")
     .run(await hashPassword("home-pass-1234"), Date.now());
-  const app = buildApp({ logger: false }, { database: db });
+  const app = buildApp({ logger: false }, { database: db, ...options });
   const address = await app.listen({ host: "127.0.0.1", port: 0 });
   t.after(async () => { await app.close(); db.close(); });
   const login = await app.inject({ method: "POST", url: "/api/v1/auth/admin/login", headers: csrf,
@@ -100,4 +103,55 @@ test("T-039/T-040: manual default, persistent config, global broadcast, no page 
   await new Promise<void>((done) => page.once("close", () => done()));
   assert.equal((await getSettings()).json().activePages, 0);
   assert.equal((await getSettings()).json().mode, "auto");
+});
+
+
+async function eventually(check: () => Promise<boolean>, timeoutMs = 1500): Promise<void> {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    if (await check()) return;
+    await wait(20);
+  }
+  assert.fail("browser presence did not settle before deadline");
+}
+
+test("T-040: revoked homepage credentials and admin logout release only their own page sockets", async (t) => {
+  const { app, admin, home, getSettings, url, origin } = await setup(t, { presenceSweepIntervalMs: 25 });
+  // An admin session must count even on the homepage, without a separate home cookie.
+  const homeStatus = await app.inject({ method: "GET", url: "/api/v1/auth/home/status", headers: { cookie: admin } });
+  assert.equal(homeStatus.json().authenticated, true);
+
+  const homePage = await connect(url, home, origin);
+  const adminPage = await connect(url, admin, origin);
+  t.after(() => { homePage.terminate(); adminPage.terminate(); });
+  assert.equal((await getSettings()).json().activePages, 2);
+
+  // Revoking a homepage passphrase invalidates the existing browser presence,
+  // but must not disconnect an independently authenticated admin page.
+  const revoke = await app.inject({ method: "POST", url: "/api/v1/admin/settings/home/revoke",
+    headers: { ...csrf, cookie: admin }, payload: {} });
+  assert.equal(revoke.statusCode, 200);
+  await eventually(async () => (await getSettings()).json().activePages === 1);
+  assert.equal(adminPage.readyState, WebSocket.OPEN);
+  await assert.rejects(connect(url, home, origin), /HTTP 401/);
+
+  const logout = await app.inject({ method: "POST", url: "/api/v1/auth/admin/logout",
+    headers: { ...csrf, cookie: admin }, payload: {} });
+  assert.equal(logout.statusCode, 200);
+  await eventually(async () => (await getSettings()).json().activePages === 0);
+  await assert.rejects(connect(url, admin, origin), /HTTP 401/);
+  assert.equal((await getSettings()).json().mode, "manual", "credential invalidation must not erase global settings");
+});
+
+test("T-040: abrupt browser transport failure is removed without a close handshake", async (t) => {
+  const { app, admin, getSettings, url, origin } = await setup(t, { presenceSweepIntervalMs: 25 });
+  const page = await connect(url, admin, origin);
+  t.after(() => page.terminate());
+  assert.equal((await getSettings()).json().activePages, 1);
+  // Simulate a tab/process crashing rather than orderly navigation.
+  page.terminate();
+  await eventually(async () => (await getSettings()).json().activePages === 0);
+  const noPageProbe = await app.inject({ method: "POST", url: "/api/v1/admin/agents/probe",
+    headers: { ...csrf, cookie: admin }, payload: {} });
+  assert.equal(noPageProbe.statusCode, 409, "no logged-in browser means no Agent Ping dispatch");
 });
