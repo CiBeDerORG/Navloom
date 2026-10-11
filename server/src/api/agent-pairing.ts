@@ -217,6 +217,7 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     const result = db.sqlite.prepare("UPDATE agents SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").run(Date.now(), id.data.id);
     if (result.changes !== 1) throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在或已撤销");
     audit(db, "revoked", id.data.id);
+    presence?.agentRevoked(id.data.id);
     hub.disconnect(id.data.id, 4003, "revoked");
     return { ok: true };
   });
