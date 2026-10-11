@@ -192,9 +192,15 @@ try {
   const adminPage = await page(cookie);
   await until(async () => (await settings()).payload.activePages === 2);
   const beforePing = new Map((await devices()).map((device) => [device.id, device.lastSeenAt]));
+  for (const device of await devices()) {
+    assert.equal(device.certificateConfigured, true, "Agent trust must be explicitly provisioned");
+    assert.equal(device.endpointHost, host, "expose only the registered private endpoint");
+    assert.ok(device.connectedAt > 0 && !device.handshakePending, "TLS WSS alone is not online until hello");
+    assert.equal(device.lastPongAt, null, "manual mode must not probe automatically");
+  }
   const ping = await call("/api/v1/admin/agents/probe", "POST", {}, cookie);
   assert.equal(ping.payload.sent, 2, "one global Ping per connected Agent");
-  await delay(200);
+  await until(async () => (await devices()).every((device) => device.lastPongAt > 0));
   for (const device of await devices()) {
     assert.equal(device.lastSeenAt, beforePing.get(device.id), "Pong never updates last_seen_at");
     assert.equal(device.capabilities, null, "no implicit Docker task on hello");
