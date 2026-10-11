@@ -138,3 +138,22 @@ jobs:
             exit 1
           fi
           echo "Navloom development Compose endpoints are reachable"
+
+  m2-transport:
+    name: M2 Go-to-Node WSS integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+      - name: Install pinned npm dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build Server and contracts
+        run: npm run build:contracts && npm run build:server
+      - name: Two real Go Agents connect to Node Server
+        run: node scripts/smoke-m2.mjs
