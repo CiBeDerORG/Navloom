@@ -1,4 +1,4 @@
-# Navloom Server（M1 开发版）
+# Navloom Server（M1 导航 + M2 Agent 安全接入开发版）
 
 Fastify 5 + TypeScript + SQLite + Drizzle ORM。Server 固定在云端，**不执行 Docker 命令**。
 
@@ -47,5 +47,22 @@ npm run dev:server
 
 - 已实现独立导航卡片/一级分组、搜索、排序、编辑和权限隔离。
 - 容器池/实例关联卡片功能依赖 M2，尚未接入。
-- WSS Agent、Docker SDK、Compose 安装与生产 Caddy 部署尚未实现。
+- WSS Agent 认证、只读任务与 Docker/Compose 能力探测已提交；Docker SDK 容器池、Compose 安装与生产 Caddy 部署尚未实现。
 - M1 尚需浏览器交互、移动端视觉及完整安全验收；**禁止直接部署到公网**。
+
+## M2 Agent 与只读任务 API
+
+| 方法 | 路径 | 权限 / 行为 |
+| --- | --- | --- |
+| POST | `/api/v1/admin/agents/pair-tokens` | 管理员签发一次性设备接入令牌 |
+| POST | `/api/v1/agent/pair` | 一次性令牌配对（不接受管理员 Cookie 代替令牌） |
+| GET | `/api/v1/admin/agents` | 管理员设备列表、在线状态与最近能力 |
+| GET/PATCH | `/api/v1/admin/agents/:id` | 管理员详情/重命名 |
+| POST | `/api/v1/admin/agents/:id/revoke` | 管理员撤销设备，主动断开 WSS |
+| POST | `/api/v1/admin/agents/:id/capability-probe` | 管理员请求只读探测，JSON Body 必须为 `{}`；202 返回 `taskId` |
+| GET | `/api/v1/admin/agent-tasks/:id` | 管理员查询任务状态、结果与超时未知状态 |
+| WS/WSS | `/agent` | 独立 Agent Bearer 凭据 + UUID + 协议版本认证 |
+
+Agent 完成 `hello` 后自动接收只读能力探测任务；只允许与所属 Agent 对应的 `task_result` 更新 SQLite。任务 `sent` 在断线、超时、Server 重启后变为 `unknown`，**不等于失败**；重复结果幂等，迟到结果仍可关联。当前不会自动重放任务，也没有通用命令执行接口。
+
+`AgentCommandSchema` 已定义未来的容器启停/重启、inventory 和 Compose 部署参数，但**本批仅执行 `capability_probe`**。即使 Agent 报告 Docker/Compose 可用，也不意味着已开放安装或容器操作。生产环境必须使用可信 TLS/WSS 反向代理，禁止公网明文连接。完整 Codex 验收步骤见 [统一验收清单](../planning/M1-CODEX-REGRESSION.md)。
