@@ -16,7 +16,7 @@ import (
 	"github.com/CiBeDerORG/Navloom/agent/internal/transport"
 )
 
-var version = "0.1.0-m0"
+var version = "0.2.0-m2"
 
 func main() {
 	os.Exit(run(os.Args[1:]))
