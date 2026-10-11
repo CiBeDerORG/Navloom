@@ -388,3 +388,5 @@ npm run db:migrate
 **T-036 增量代码自动化记录（非 Codex PASS）**：[CI 38150454809](https://github.com/CiBeDerORG/Navloom/actions/runs/38150454809) 4/4 通过；包含私网端点输入拒绝、证书格式校验、Go 配对配置错误路径、数据库迁移；尚无反向 WSS/双向 TLS 联调。E 组状态全部保持 `NOT_RUN`。
 
 **E1 追加权限矩阵**：① 无 Cookie 或无效/过期 Cookie 的导航页、登录页：不计数、不建连；② 只有有效首页 Cookie 的导航页：计数、建连，不得访问 `/api/v1/admin/*`；③ 有效管理员会话的任意页面：计数、建连，按管理员权限修改配置；④ 多页面混合打开：只建一套 WSS/心跳；⑤ 最后一个有效页面关闭或凭据失效：断开连接并保持最后状态。上述用例均为 **NOT_RUN**，不能引用旧 CI 充当 Codex PASS。
+
+**T-036～T-038 自动化增量（非 Codex PASS，2026-10-11）**：[CI 38154719616](https://github.com/CiBeDerORG/Navloom/actions/runs/38154719616) 4/4 通过，覆盖 Go 私网 TLS 证书生成/权限、被动 WSS 客户端证书校验、重复连接拒绝、Ping/Pong 与只读任务，以及 Node 主动拨号器静态安全条件。**尚未覆盖 Server 主动连接真实 Go 被动 Agent、首页口令导航页在线驱动或零页面抓包**，因此 E 组 T-036～T-059 仍全部 `NOT_RUN`，不得沿用旧 CI 或此增量 CI 判定独立验收通过。
