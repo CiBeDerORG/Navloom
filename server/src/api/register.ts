@@ -30,7 +30,7 @@ export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureC
     if (request.url.startsWith("/api/v1/admin/")) access.requireAdmin(request);
   });
   app.addHook("onSend", async (request, reply, payload) => {
-    if (/^\\/api\\/v1\\/(auth|admin|home)\\//.test(request.url)) {
+    if (["/api/v1/auth/", "/api/v1/admin/", "/api/v1/home/"].some((prefix) => request.url.startsWith(prefix))) {
       reply.header("Cache-Control", "no-store");
       reply.header("X-Content-Type-Options", "nosniff");
       reply.header("Referrer-Policy", "no-referrer");
