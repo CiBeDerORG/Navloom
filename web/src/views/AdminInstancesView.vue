@@ -92,6 +92,20 @@ async function revoke(agent: AgentDevice) {
   await perform(() => revokeAgent(agent.id), "设备凭据已撤销。");
 }
 
+function capabilityReason(value: string | null): string {
+  const reasons: Record<string, string> = {
+    socket_missing: "未找到 Docker Socket",
+    permission_denied: "无 Docker Socket 访问权限",
+    daemon_unreachable: "Docker 守护进程不可达",
+    unsupported_host: "不支持远程 Docker 主机",
+    version_unavailable: "Docker API 版本不可用",
+    cli_missing: "未安装 Docker CLI",
+    compose_unavailable: "Compose v2 不可用",
+    timeout: "检测超时",
+  };
+  return value ? reasons[value] ?? "未知原因" : "未知原因";
+}
+
 function formatDate(value: number | null) {
   return value === null ? "—" : new Date(value).toLocaleString();
 }
@@ -176,14 +190,14 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer); });
             <div><dt class="text-slate-400">登记时间</dt><dd>{{ formatDate(selected.registeredAt) }}</dd></div>
             <div><dt class="text-slate-400">最后通信</dt><dd>{{ formatDate(selected.lastSeenAt) }}</dd></div>
             <div><dt class="text-slate-400">Docker API</dt>
-              <dd v-if="selected.capabilities">{{ selected.capabilities.docker.available ? "可连接 · API " + (selected.capabilities.docker.api_version || "未知") : "不可用 · " + (selected.capabilities.docker.reason || "未知原因") }}</dd>
+              <dd v-if="selected.capabilities">{{ selected.capabilities.docker.available ? "可连接 · API " + (selected.capabilities.docker.api_version || "未知") : "不可用 · " + (capabilityReason(selected.capabilities.docker.reason)) }}</dd>
               <dd v-else>未探测（不代表可部署）</dd>
             </div>
             <div><dt class="text-slate-400">Compose v2</dt>
-              <dd v-if="selected.capabilities">{{ selected.capabilities.compose.available ? "可用 · " + (selected.capabilities.compose.version || "未知版本") : "不可用 · " + (selected.capabilities.compose.reason || "未知原因") }}</dd>
+              <dd v-if="selected.capabilities">{{ selected.capabilities.compose.available ? "可用 · " + (selected.capabilities.compose.version || "未知版本") : "不可用 · " + (capabilityReason(selected.capabilities.compose.reason)) }}</dd>
               <dd v-else>未探测</dd>
             </div>
-            <div><dt class="text-slate-400">能力探测时间</dt><dd>{{ formatDate(selected.checkedAt) }}</dd></div>
+            <div><dt class="text-slate-400">能力探测时间</dt><dd>{{ formatDate(selected.checkedAt) }}{{ selected.status !== "online" && selected.checkedAt ? "（设备离线，历史探测）" : "" }}</dd></div>
             <div><dt class="text-slate-400">部署资格</dt>
               <dd>{{ selected.status === "online" && selected.capabilities?.docker.available && selected.capabilities?.compose.available ? "具备 Docker/Compose 基础能力（部署功能尚未开放）" : "不可部署（设备离线或能力不足/未知）" }}</dd>
             </div>
