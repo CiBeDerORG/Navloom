@@ -101,3 +101,28 @@ jobs:
             echo "Expected the unreachable Server check to fail"
             exit 1
           fi
+
+  compose:
+    name: Local Docker Compose startup
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start dev Compose and check both HTTP endpoints
+        run: |
+          set -euo pipefail
+          docker compose -f compose.dev.yml up -d
+          trap 'docker compose -f compose.dev.yml down -v || true' EXIT
+          ready=false
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:3000/api/v1/system/status | grep -q navloom-server && curl -fsS http://127.0.0.1:5173/ | grep -q Navloom; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != true ]; then
+            docker compose -f compose.dev.yml logs
+            exit 1
+          fi
+          echo "Navloom development Compose endpoints are reachable"
