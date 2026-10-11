@@ -150,3 +150,119 @@ test("M2 WSS: heartbeat timeout closes stale socket; reconnect uses same persist
   await until(async () => (await list()).find((agent) => agent.id === a.id)?.status === "online");
   assert.equal((db.sqlite.prepare("SELECT COUNT(*) AS count FROM agents").get() as { count: number }).count, 1);
 });
+
+
+const capabilities = {
+  platform: "linux", architecture: "amd64",
+  docker: { available: false, api_version: null, reason: "socket_missing" },
+  compose: { available: false, version: null, reason: "cli_missing" },
+};
+
+async function dispatchOnHello(socket: WebSocket, agentId: string): Promise<{
+  task_id: string; agent_id: string; payload: { operation: string; arguments: unknown };
+}> {
+  const received = new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("no capability dispatch")), 1500);
+    socket.once("message", (data) => { clearTimeout(timer); resolve(data.toString()); });
+  });
+  socket.send(JSON.stringify(message(agentId, "hello", { version: "m2-tasks" })));
+  const task = JSON.parse(await received) as {
+    task_id: string; agent_id: string; payload: { operation: string; arguments: unknown };
+  };
+  assert.equal(task.agent_id, agentId);
+  assert.equal(task.payload.operation, "capability_probe");
+  assert.deepEqual(task.payload.arguments, {});
+  return task;
+}
+
+test("M2 task routing: directed read-only probe, capability persistence, idempotent results", async (t) => {
+  const { app, address, cookie, createIdentity, headers, db } = await setup(t);
+  const a = createIdentity();
+  const b = createIdentity();
+  const socketA = await dial(address, headers(a));
+  const socketB = await dial(address, headers(b));
+  t.after(() => { socketA.terminate(); socketB.terminate(); });
+  const [taskA, taskB] = await Promise.all([dispatchOnHello(socketA, a.id), dispatchOnHello(socketB, b.id)]);
+  assert.notEqual(taskA.task_id, taskB.task_id);
+  const taskPath = "/api/v1/admin/agent-tasks/" + taskA.task_id;
+  assert.equal((await app.inject({ method: "GET", url: taskPath })).statusCode, 401);
+  assert.equal((await app.inject({ method: "GET", url: taskPath, headers: { cookie } })).json().task.status, "sent");
+  const result = message(a.id, "task_result", { success: true, exit_code: null, capabilities }, { task_id: taskA.task_id });
+  socketA.send(JSON.stringify(result));
+  await until(async () => (await app.inject({ method: "GET", url: taskPath, headers: { cookie } })).json().task.status === "succeeded");
+  socketA.send(JSON.stringify({ ...result, message_id: uuid(), payload: { success: false, exit_code: 1, error: "conflicting result" } }));
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal((await app.inject({ method: "GET", url: taskPath, headers: { cookie } })).json().task.status, "succeeded");
+  const detailA = (await app.inject({ method: "GET", url: "/api/v1/admin/agents/" + a.id, headers: { cookie } })).json().agent;
+  const detailB = (await app.inject({ method: "GET", url: "/api/v1/admin/agents/" + b.id, headers: { cookie } })).json().agent;
+  assert.deepEqual(detailA.capabilities, capabilities);
+  assert.ok(detailA.checkedAt > 0);
+  assert.equal(detailB.capabilities, null);
+  assert.equal((db.sqlite.prepare("SELECT COUNT(*) AS n FROM agent_tasks").get() as { n: number }).n, 2);
+  const refreshed = await app.inject({
+    method: "POST", url: "/api/v1/admin/agents/" + a.id + "/capability-probe",
+    headers: { ...csrf, cookie }, payload: {},
+  });
+  assert.equal(refreshed.statusCode, 202);
+  assert.notEqual(refreshed.json().taskId, taskA.task_id);
+  const denied = await app.inject({
+    method: "POST", url: "/api/v1/admin/agents/" + a.id + "/capability-probe",
+    headers: { ...csrf, cookie }, payload: { operation: "shell", command: "id" },
+  });
+  assert.equal(denied.statusCode, 400);
+  assert.equal((await app.inject({
+    method: "POST", url: "/api/v1/admin/agents/" + a.id + "/capability-probe",
+    headers: csrf, payload: {},
+  })).statusCode, 401);
+  assert.equal((await app.inject({
+    method: "POST", url: "/api/v1/admin/agents/" + a.id + "/capability-probe",
+    headers: { cookie }, payload: {},
+  })).statusCode, 403);
+});
+
+test("M2 task routing: wrong Agent result rejected, disconnect unknown, late result recovered", async (t) => {
+  const { app, address, cookie, createIdentity, headers, db } = await setup(t, 45000, 10);
+  const a = createIdentity();
+  const b = createIdentity();
+  const socketA = await dial(address, headers(a));
+  const socketB = await dial(address, headers(b));
+  t.after(() => { socketA.terminate(); socketB.terminate(); });
+  const [taskA, taskB] = await Promise.all([dispatchOnHello(socketA, a.id), dispatchOnHello(socketB, b.id)]);
+  const closeB = closed(socketB);
+  socketB.send(JSON.stringify(message(b.id, "task_result", { success: true, exit_code: null, capabilities }, { task_id: taskA.task_id })));
+  assert.equal(await closeB, 1008);
+  const pathA = "/api/v1/admin/agent-tasks/" + taskA.task_id;
+  const pathB = "/api/v1/admin/agent-tasks/" + taskB.task_id;
+  assert.equal((await app.inject({ method: "GET", url: pathA, headers: { cookie } })).json().task.status, "sent");
+  await until(async () => (await app.inject({ method: "GET", url: pathB, headers: { cookie } })).json().task.status === "unknown");
+  const closeA = closed(socketA);
+  socketA.close();
+  await closeA;
+  await until(async () => (await app.inject({ method: "GET", url: pathA, headers: { cookie } })).json().task.status === "unknown");
+  const reconnect = await dial(address, headers(a));
+  t.after(() => reconnect.terminate());
+  const newTask = await dispatchOnHello(reconnect, a.id);
+  assert.notEqual(newTask.task_id, taskA.task_id);
+  // A late result can be correlated after a disconnect; unknown != failed.
+  reconnect.send(JSON.stringify(message(a.id, "task_result", { success: true, exit_code: null, capabilities }, { task_id: taskA.task_id })));
+  await until(async () => (await app.inject({ method: "GET", url: pathA, headers: { cookie } })).json().task.status === "succeeded");
+  assert.equal((db.sqlite.prepare("SELECT COUNT(*) AS n FROM agent_capabilities").get() as { n: number }).n, 1);
+});
+
+test("M2 task routing: task timeout stays unknown; missing capabilities and unissued task rejected", async (t) => {
+  const { app, address, cookie, createIdentity, headers } = await setup(t, 45000, 15);
+  const a = createIdentity();
+  const socket = await dial(address, headers(a));
+  t.after(() => socket.terminate());
+  const task = await dispatchOnHello(socket, a.id);
+  const closedPromise = closed(socket);
+  socket.send(JSON.stringify(message(a.id, "task_result", { success: true, exit_code: null }, { task_id: task.task_id })));
+  assert.equal(await closedPromise, 1008);
+  const state = (await app.inject({ method: "GET", url: "/api/v1/admin/agent-tasks/" + task.task_id, headers: { cookie } })).json().task;
+  assert.equal(state.status, "unknown");
+  const offline = await app.inject({
+    method: "POST", url: "/api/v1/admin/agents/" + a.id + "/capability-probe",
+    headers: { ...csrf, cookie }, payload: {},
+  });
+  assert.equal(offline.statusCode, 409);
+});
