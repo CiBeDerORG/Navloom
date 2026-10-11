@@ -21,6 +21,7 @@ test("T-039: reverse Agent accepts hello, no automatic JSON task/heartbeat, Pong
     hub.connect(agentId, socket, "reverse");
     done();
   }));
+  await new Promise<void>((done) => server.once("listening", () => done()));
   const address = server.address();
   assert.ok(address && typeof address !== "string");
   const client = new WebSocket("ws://127.0.0.1:" + address.port);
