@@ -61,9 +61,12 @@ npm run dev:server
 | POST | `/api/v1/admin/agents/:id/revoke` | 管理员撤销设备，主动断开 WSS |
 | POST | `/api/v1/admin/agents/:id/capability-probe` | 管理员请求只读探测，JSON Body 必须为 `{}`；202 返回 `taskId` |
 | GET | `/api/v1/admin/agent-tasks/:id` | 管理员查询任务状态、结果与超时未知状态 |
-| WS/WSS | `/agent` | 独立 Agent Bearer 凭据 + UUID + 协议版本认证 |
+| WS/WSS | `/api/v1/presence` | 已登录页面通过同源 Origin 和有效首页/管理员 Cookie 登记在线 |
+| WSS 出站 | `wss://Agent私网IP:端口/agent` | Server 使用双向 TLS 主动连接私网 Agent，不是 Server 的入站 API |
+| GET/PATCH | `/api/v1/admin/agents/probe-settings` | 管理员配置全局自动/手动 WSS Ping 间隔 |
+| POST | `/api/v1/admin/agents/probe` | 管理员手动 Ping，不执行 Docker 探测任务 |
 
-Agent 完成 `hello` 后自动接收只读能力探测任务；只允许与所属 Agent 对应的 `task_result` 更新 SQLite。任务 `sent` 在断线、超时、Server 重启后变为 `unknown`，**不等于失败**；重复结果幂等，迟到结果仍可关联。当前不会自动重放任务，也没有通用命令执行接口。
+Agent 在 Server 主动连接后发送一次 v2 `hello`；不会自动下发 Docker 探测任务，管理员可按需请求只读能力探测；只允许与所属 Agent 对应的 `task_result` 更新 SQLite。任务 `sent` 在断线、超时、Server 重启后变为 `unknown`，**不等于失败**；重复结果幂等，迟到结果仍可关联。当前不会自动重放任务，也没有通用命令执行接口。
 
 `AgentCommandSchema` 已定义未来的容器启停/重启、inventory 和 Compose 部署参数，但**本批仅执行 `capability_probe`**。即使 Agent 报告 Docker/Compose 可用，也不意味着已开放安装或容器操作。生产环境必须使用可信 TLS/WSS 反向代理，禁止公网明文连接。完整 Codex 验收步骤见 [统一验收清单](../planning/M1-CODEX-REGRESSION.md)。
 
@@ -73,6 +76,6 @@ Agent 完成 `hello` 后自动接收只读能力探测任务；只允许与所�
 - 已解锁首页或已登录后台使用同源 `WS/WSS /api/v1/presence` 登记在线。**只有真实打开的已登录页面才计入**，未登录页面/浏览器关闭但 Cookie 尚存不计入。Server 为所有页面维护一套 Agent 连接和 Ping/Pong 管理器；最后一个页面离开时取消重连、关闭 Agent WSS。浏览器断网由页面 WS Ping/Pong 和会话重验证处理。
 - `GET/PATCH /api/v1/admin/agents/probe-settings` 读取/修改全局 `manual/auto`、间隔 5～300 秒；`POST /api/v1/admin/agents/probe` 手动发送 Agent WSS Ping。均需管理员 Cookie，写入需 CSRF 头；首页 Cookie **不能修改设置或下发任务**。设置变更广播至所有已登录页面。Pong 不触发 SQLite 周期写入。
 - 反向 Agent 在没有已登录页面时显示「暂停检测」并保留最近通信/能力历史，不因人为关闭页面伪判离线。仅 `hello`、任务结果写入最近通信时间；Docker 能力探测仍是独立的管理员只读任务。
-- **阶段限制**：Server 旧入站 `/agent` 及旧 Agent 主动 WSS/JSON 心跳暂未删除，历史集成测试仍保留。新 Go 被动 Agent ↔ Node 主动 Server 已有私网双向 TLS 的 CI 隔离联调，但仍需移除旧路径、完成浏览器端和 Codex 独立验收后才可宣称零页面零 Agent 通信。生产部署暂未开放。
+- **当前限制**：Server 旧 `/agent` 入站、Go Agent 主动连接和 JSON heartbeat 已删除。新 v2 双 Agent 私网 mTLS 的真实进程 CI 已通过；浏览器异常断线、包级零通信、证书轮换、真实 NAS 和 Codex 独立验收仍待执行。生产部署暂未开放。
 
 配置/配对步骤见 [Agent README](../agent/README.md)，实施与 CI 证据见 [M2 实施记录](../planning/M2-IMPLEMENTATION.md)。
