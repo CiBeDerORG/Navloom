@@ -2,14 +2,14 @@
 
 > **用途**：**继续使用之前交给 Codex 的这一个文件**集中安排 M1 浏览器回归和 M2 Agent 接入验收；Codex 在此追加结果、复现步骤与修复证据，不另开一份验收清单。任务状态的权威来源仍是 [认证任务](./tasks/02-access-auth.md)、[导航任务](./tasks/03-navigation.md)、[Agent 任务](./tasks/04-agent.md) 和 [容器池任务](./tasks/05-inventory.md)。
 >
-> **基线（2026-10-11，提交 `63e7edc`）**：M1 共 25 项，11 项已勾选验收，**14 项未完成**（9 项 UI/交互待回归，5 项依赖 M2）；M2 共 26 项，**T-035 已通过自动化验收（1/26）**，T-034/T-036/T-041～T-043 已有部分实现且接入 WSS，T-037～T-040 代码已提交并通过自动化 CI，**以上均待 Codex 独立验收**；T-044～T-059 的 16 项尚未实现。代码存在 ≠ 测试通过；CI 通过 ≠ 浏览器/真实 Agent 联调通过。
+> **基线（2026-10-11，提交 `63e7edc`）**：M1 共 25 项，11 项已勾选验收，**14 项未完成**（9 项 UI/交互待回归，5 项依赖 M2）；M2 共 26 项，**T-035 已通过自动化验收（1/26）**，T-034/T-036/T-041～T-043 已有部分实现且接入 WSS，T-037～T-040 代码已提交并通过自动化 CI，**以上均待 Codex 独立验收**；T-044～T-047 已提交受限任务/能力探测代码，等待 Codex 验收；T-048～T-059 的 12 项尚未实现。代码存在 ≠ 测试通过；CI 通过 ≠ 浏览器/真实 Agent 联调通过。
 
 ## 给 Codex 的执行指令
 
 1. 先阅读本文件、[M1 实施记录](./M1-IMPLEMENTATION.md)、[M2 实施记录](./M2-IMPLEMENTATION.md)、[PRD](./PRD.md)、[决策记录](./DECISIONS.md) 和对应任务原文；检查当前代码而不是仅相信旧实施记录。
 2. **优先执行 A 组 M1 的 9 项和 C 组 M2 当前已实现部分的验收**：M1 使用真实浏览器交互（建议 Playwright；仓库当前未预装浏览器 E2E 测试框架），M2 使用本地隔离 Server/SQLite + Go 测试与管理员浏览器。能自动化的编写可重复运行的测试；无法运行时标记 `NOT_RUN`，不得伪称通过。
-3. 对复现的 **M1 或 M2 当前已实现功能**缺陷做最小必要修复并重新回归；不要为了验收而提前实现 D 组的 WSS/Docker/M3 功能、生产部署、健康检查、额外业务模块或未确认的产品决策。
-4. **B 组 5 项标记 `BLOCKED_M2`**；**C 组 WSS 子任务及 D 组 T-037～T-040 改为 `NOT_RUN`，等待 Codex 独立联调**；**容器池依赖继续 `BLOCKED_M2`/`BLOCKED_INVENTORY`**；**T-044～T-059 继续 `NOT_IMPLEMENTED`**。可检查模型/接口并编写独立子测试，但不能用假 Agent、mock 容器或已通过 CI 冒充真实联调验收。
+3. 对复现的 **M1 或 M2 当前已实现功能**缺陷做最小必要修复并重新回归；不要为了验收而提前实现 D 组尚未交付的容器操作/M3 功能、生产部署、健康检查、额外业务模块或未确认的产品决策。
+4. **B 组 5 项标记 `BLOCKED_M2`**；**C 组 WSS 子任务及 D 组 T-037～T-040 改为 `NOT_RUN`，等待 Codex 独立联调**；**容器池依赖继续 `BLOCKED_M2`/`BLOCKED_INVENTORY`**；**T-044～T-047 已提交部分实现，按 D5～D8 测试；T-048～T-059 继续 `NOT_IMPLEMENTED`**。可检查模型/接口并编写独立子测试，但不能用假 Agent、mock 容器或已通过 CI 冒充真实联调验收。
 5. 每项给出 `PASS / FAIL / BLOCKED_M2 / BLOCKED_INVENTORY / BLOCKED_WSS / NOT_IMPLEMENTED / NOT_RUN`、执行命令/浏览器、测试结果、失败复现步骤、截图或日志路径、相关提交。**只有实际通过全部原任务验收标准才把对应任务文件中的 `- [ ]` 改为 `- [x]`**；不能只凭页面存在或 CI 绿色勾选。T-035 已在任务文件勾选，Codex 的独立复核状态仍应从 `NOT_RUN` 开始。
 6. 回归完成后在本文件底部的「统一验收结果」区域追加记录，按实际结论分别更新 [M1 实施记录](./M1-IMPLEMENTATION.md) 和 [M2 实施记录](./M2-IMPLEMENTATION.md)；不要修改已确认的产品规则或把 Q-xx 默认建议当成用户最终决定。
 
@@ -138,7 +138,7 @@ npm run dev
 - `server/src/m2-transport.test.ts` 覆盖握手拒绝、双设备身份隔离、心跳、版本校验、超大帧、替换连接、超时与撤销；`agent/internal/transport/client_test.go` 覆盖 TLS、退避重连、心跳与关闭。
 - `scripts/smoke-m2.mjs` 在临时 SQLite + 回环 Server 上启动**两台真实 Go Agent 进程**，验证在线、停止/重启、同一 ID 恢复、撤销一台不影响另一台。该脚本使用临时测试凭据，运行后删除本地数据，不接触 NAS/Docker。
 - Codex 可在具备 Node.js 22、Go 1.24+ 的隔离环境复跑：先 `npm ci && npm run build:contracts && npm run build:server`，再 `node scripts/smoke-m2.mjs`。记录退出码、提交 SHA 和日志路径；**CI 成功不能自动填 Codex `PASS`**。
-- 仍需人工/浏览器检查：管理员界面实时状态、错误文案、不同视口、实际 TLS 代理与断网环境；T-039 的任务相关性依赖 T-044，T-042 的容器筛选依赖 T-053。
+- 仍需人工/浏览器检查：管理员界面实时状态、错误文案、不同视口、实际 TLS 代理与断网环境；T-039 的只读能力探测任务关联已提交，Docker 操作的完整任务关联仍依赖 T-055；T-042 的容器筛选依赖 T-053。
 ### C 组执行环境与纪律
 
 - **只使用本地隔离 Server、独立 SQLite、回环测试 HTTP 及测试用 Agent 身份**。除非用户另行授权，不连接真实 NAS、Docker Socket 或公网 Server；不得把设备凭据、一次性令牌、Cookie、数据库原文件或日志中的秘密提交 Git。
@@ -201,9 +201,9 @@ npm run db:migrate
 - 使用已撤销 Agent 凭据调用身份验证应失败；绝不将首页口令或管理员 Cookie 当成 Agent 凭据；设备配对接口只能用于交换一次性令牌，不是 Docker 操作入口。
 - 检查错误路径（过期、重复使用、格式错误、无权限、网络断开）不会输出秘密；CI 绿灯不等于真实设备验收。
 
-## D. M2 后续验收登记（20 项：4 项 WSS 待回归，16 项尚未实现）
+## D. M2 后续验收登记（20 项：8 项已提交代码待独立回归，12 项尚未实现）
 
-> 这些任务**继续统一登记在本文件**。**T-037～T-040 本批代码已提交，状态 `NOT_RUN`，Codex 可按 D1～D4 执行**；T-044～T-059 仍为 `NOT_IMPLEMENTED`。不要用 mock 通过代替真实 Agent/Docker 联调。
+> 这些任务**继续统一登记在本文件**。**T-037～T-040 按 D1～D4 回归；T-044～T-047 按 D5～D8 回归已实现的安全子集**；T-048～T-059 仍为 `NOT_IMPLEMENTED`。T-045/T-047 的 Docker 执行子项仍被 T-048/T-055 阻塞。不要用 mock 通过代替真实 Agent/Docker 联调。
 
 | 任务 | 待实现能力 | 完整验收关键条件 |
 | --- | --- | --- |
@@ -211,10 +211,10 @@ npm run db:migrate
 | T-038 | Go WSS 客户端与自动重连 | 断网退避重连、Server 重启后同一身份恢复、优雅退出、TLS 校验 |
 | T-039 | Agent JSON 信封/协议校验 | 未知版本/类型/非法 payload 安全拒绝、请求与响应可关联 |
 | T-040 | 心跳与在线状态 | 在线、超时离线、重连恢复在线且 ID 不变，最近通信时间准确 |
-| T-044 | 任务路由与超时 | 仅向目标 Agent 发送；超时不等于失败；重复结果可识别 |
-| T-045 | Agent 命令白名单 | 仅允许已定义 Docker/Compose 命令；未知命令、伪造参数、任意 shell 被拒绝 |
-| T-046 | Docker/Compose 能力探测 | 不可用时明确报错，不误开放部署入口 |
-| T-047 | 双 Agent 权限隔离集成测试 | 两台 Agent 独立；凭据不可互冒；撤销后不可操作；恶意消息无效 |
+| T-044 | 已提交只读探测任务路由与超时，待验收 | 仅向目标 Agent 发送；超时不等于失败；重复结果可识别 |
+| T-045 | 已提交命令白名单与安全拒绝，Docker 执行尚未开放 | 仅允许已定义 Docker/Compose 命令；未知命令、伪造参数、任意 shell 被拒绝 |
+| T-046 | 已提交只读 Docker/Compose 探测，待真实隔离环境验收 | 不可用时明确报错，不误开放部署入口 |
+| T-047 | 已提交双 Agent WSS/任务隔离测试，容器操作测试仍阻塞 | 两台 Agent 独立；凭据不可互冒；撤销后不可操作；恶意消息无效 |
 | T-048 | 发现所有 Docker 容器 | 已有、运行中、停止及外部容器均被发现；Docker 不可用可见 |
 | T-049 | Server 容器快照持久化 | Agent ID 隔离；重复快照不重复；只接收所属 Agent 的上报 |
 | T-050 | Docker 事件 + 全量对账 | create/start/stop/remove 后同步；断线重启后全量校准 |
@@ -240,17 +240,45 @@ npm run db:migrate
 - `wss://` 自签名/不受信任证书必须拒绝；远程 `ws://` 必须拒绝，只有显式开发开关加 loopback 可用；SIGINT/SIGTERM 关闭连接；日志不含令牌或长期凭据。
 - 不得为测试而关闭 TLS 证书校验；不可在公开 CI 中打印测试凭据。
 
-### D3 · T-039｜JSON 信封、版本与白名单 · NOT_RUN（完整任务关联依赖 T-044）
+### D3 · T-039｜JSON 信封、版本与白名单 · NOT_RUN（只读任务关联已提交）
 
 - 检查 TypeScript `AgentMessageSchema` 和 Go `protocol` 的 `protocol_version`、`message_id`、`agent_id`、`sent_at`、`type`、`payload`、任务 `task_id`；共享 fixtures 对正常/错误版本心跳的解析一致。
-- 通过真实 WSS 发送错误版本、未知类型、二进制帧、非法 JSON、负 uptime、错误 Agent ID、重复 `message_id`、心跳先于 `hello`、尚未开放的 `task_dispatch`/`inventory_snapshot`，必须安全拒绝且不执行命令。
-- **任务请求与响应的关联性**仍依赖 T-044，当前只能记录子测试，T-039 不得提前勾选。
+- 通过真实 WSS 发送错误版本、未知类型、二进制帧、非法 JSON、负 uptime、错误 Agent ID、重复 `message_id`、心跳先于 `hello`、伪造的 Agent→Server `task_dispatch`/`inventory_snapshot`，必须安全拒绝且不执行命令；合法 Server→Agent 的 `capability_probe` 应被接收并关联 `task_result`。
+- **只读任务请求与响应的关联性**已提交并有自动化测试；仍需 Codex 验证错误任务 ID、重复结果、断线后迟到结果和设备隔离。完整 T-039 仍待独立验收。
 
 ### D4 · T-040｜心跳、在线/离线与历史时间 · NOT_RUN
 
 - 两台不同测试 Agent 连接，管理员列表和详情应显示独立 `online`；`hello` 更新版本，心跳更新 `lastSeenAt`；暂停心跳超过超时后离线，历史最后通信时间保留。
 - 断线重连后状态恢复在线且 ID 不变，SQLite 不重复；替换连接/撤销设备后旧会话不能覆盖新状态；浏览器 `/admin/instances` 在约 10 秒轮询内反映状态变化。
 - 可用缩短超时的自动化测试覆盖边界，但仍需 Codex 记录真实 Go↔Node 双端联调证据，不能用纯 mock 代替。
+### D5 · T-044｜定向任务、持久化、超时与迟到结果 · NOT_RUN
+
+- 阅读 `server/drizzle/0003_m2_agent_tasks.sql`、`server/src/realtime/agent-tasks.ts` 与 `server/src/realtime/agent-hub.ts`。在独立 SQLite 中运行两台真实 Go Agent A/B，连接后 `hello` 应自动下发**仅只读** `capability_probe`，每个任务具有唯一 `task_id`，`agent_id` 严格指向对应设备；`GET /api/v1/admin/agent-tasks/:id` 仅管理员可读。
+- 用管理员 Cookie 调用 `POST /api/v1/admin/agents/:id/capability-probe`（空 JSON `{}`），检查 CSRF、Origin、未登录、首页 Cookie、非法 Agent ID、离线/撤销设备、非法参数；不能指定任意 operation、容器 ID、Shell 或文件路径。
+- 中断设备连接或让任务超过 deadline，任务应为 `unknown` 而不是 `failed`；Server 重启后原 `sent` 应转 `unknown`，**不能自动重放未来的有副作用命令**。同一 Agent 重连后可补报原 `task_id` 的结果，完成后重复/冲突结果不能覆写；B 的凭据不能为 A 的任务回报。
+- 记录任务 ID（非凭据）、状态变化、SQLite 行数、日志和复现命令。若未覆盖重启与迟到结果，保留 `NOT_RUN` 或按实际结果 `FAIL`，不得勾选 T-044。
+
+### D6 · T-045｜严格命令白名单与拒绝审计 · BLOCKED_INVENTORY（安全子集可测）
+
+- 检查 `packages/contracts/src/index.ts` 中 `AgentCommandSchema`：`capability_probe`、`inventory_refresh`、`container_start/stop/restart`、`compose_deploy` 有各自严格参数 schema；但**本批只允许 `capability_probe` 执行**，其余仅为未来协议占位，不能视为容器操作已交付。
+- 通过真实 WSS 向 Agent 发送 `shell`、`../` 路径、额外参数、伪造 task ID、错 Agent ID、容器启停/Compose 操作；必须拒绝，且不能执行任意命令。Server 对非法 Agent 消息应在 `agent_audit_events` 留下无秘密的 `protocol_rejected`，Go Agent 对非法命令应留下不含原始 payload/令牌的安全警告。
+- 检查当前代码没有通用 `exec`/shell 任务执行器；Compose 检测只可使用固定 `docker compose version --short` 参数。真正启停/部署命令仍需 T-055/M3 的授权与幂等性验收；**不得提前勾选 T-045**。
+
+### D7 · T-046｜Docker API / Compose v2 能力与不可部署原因 · NOT_RUN
+
+- 先运行 `cd agent && go test ./internal/probe ./internal/protocol`；测试用临时 Unix Socket 模拟 `GET /_ping`、`GET /version`，分别覆盖 API 正常、Socket 不存在、无权限、daemon 不可达、`DOCKER_HOST=tcp://...` 被拒绝；使用 PATH 内隔离的 `docker` CLI stub 测试固定 `compose version --short`。
+- 用隔离的双 Go Agent 与 Node Server 跑 `node scripts/smoke-m2.mjs`；验证 `agent_capabilities` 与设备列表/详情的 `capabilities`、`checkedAt`，Docker 不可用时有 `socket_missing` 等安全枚举原因，不能凭在线状态宣称可部署。
+- Codex 在真实浏览器 `/admin/instances` 检查 Docker API、Compose v2、探测时间、不可部署原因及「刷新 Docker 能力」按钮；未连接设备按钮不可用；设备离线时保留历史探测但必须明确不是实时健康检查。
+- **真实 Docker 环境的验收须先获得明确授权**；未授权时只记录模拟 Socket/CLI 与真实 Go↔Node 子测试，不得伪称 T-046 全部通过。
+
+### D8 · T-047｜双 Agent 认证、任务隔离与恶意消息 · BLOCKED_INVENTORY（安全子集可测）
+
+- 在隔离环境执行 `npm run test:server`、`npm run test:go`、`node scripts/smoke-m2.mjs`；测试两个真实 Go 进程各自配对/连接、只读任务定向、独立能力结果、离线/重连、凭据撤销，数据库不得重复 Agent ID 或串写任务。
+- 用 A 的凭据冒充 B、用 B 的 WSS 回报 A 的 task ID、发送未知协议版本/消息类型、重复 message ID、畸形 JSON/超大帧、伪造 `task_result`，必须拒绝且不能影响另一设备；审计不得泄漏凭据。
+- 检查撤销 A 后正在连接的 A 被主动断开，A 不能继续执行探测，B 仍可正常完成；生产 TLS 反代与实际网络中断场景按 D1/D2 单独记录。
+- T-047 的 Docker 容器操作隔离部分必须等 T-055 在授权的测试 Docker 环境实现后再测；**当前不勾选整项**。
+
+**本批自动化证据**：[CI 38144954055](https://github.com/CiBeDerORG/Navloom/actions/runs/38144954055) 四项通过（含真实双 Go Agent 的定向能力探测、结果持久化、撤销/重连）；Server 新增 `m2-transport.test.ts` 任务相关性与安全用例，Go 新增 `protocol/task_test.go`、`probe/docker_test.go`。此处只记 CI 证据，**Codex 的 PASS 必须来自独立复核**。
 **联调门槛**：T-037～T-040 可在本地隔离环境先做 WSS 双端联调；T-048～T-059 需要明确授权的测试 Docker 环境与至少两台隔离 Agent。M2 未达到这些条件前，M1 的 T-028～T-031/T-033 继续 `BLOCKED_M2`。任何新测试都不得默认为允许访问真实 NAS 或公网。
 
 ## 统一验收结果与交付格式（Codex 填写）
@@ -283,10 +311,10 @@ npm run db:migrate
 | T-041 | NOT_RUN | 管理员 API 可先做子测试 | — |
 | T-042 | BLOCKED_INVENTORY | 设备 UI 可先做浏览器子测试 | — |
 | T-043 | NOT_RUN | 撤销持久化可先做子测试 | — |
-| T-044 | NOT_IMPLEMENTED | 等待 Agent 任务/联调 | — |
-| T-045 | NOT_IMPLEMENTED | 等待 Agent 任务/联调 | — |
-| T-046 | NOT_IMPLEMENTED | 等待 Agent 任务/联调 | — |
-| T-047 | NOT_IMPLEMENTED | 等待 Agent 任务/联调 | — |
+| T-044 | NOT_RUN | 已提交安全子集，按 D5 独立回归；Docker 操作待后续 | — |
+| T-045 | BLOCKED_INVENTORY | 已提交安全子集，按 D6 独立回归；Docker 操作待后续 | — |
+| T-046 | NOT_RUN | 已提交安全子集，按 D7 独立回归；Docker 操作待后续 | — |
+| T-047 | BLOCKED_INVENTORY | 已提交安全子集，按 D8 独立回归；Docker 操作待后续 | — |
 | T-048 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
 | T-049 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
 | T-050 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
@@ -300,7 +328,7 @@ npm run db:migrate
 | T-058 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
 | T-059 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
 
-**最终回归报告必须包含**：测试日期与 commit SHA、运行环境、自动化命令及退出码、浏览器/视口覆盖、M1 A 组 9 项逐项结论、M1 B 组 5 项阻塞说明、M2 C 组 6 项逐项子测试与完整验收差距、D 组 4 项 WSS 待回归与 16 项未实现状态、失败复现步骤和修复、未测风险、CI 结果，以及 M1/M2 各自是否达到阶段性门槛。Codex 每轮只更新实际执行过的行，并保留未执行任务的真实状态。
+**最终回归报告必须包含**：测试日期与 commit SHA、运行环境、自动化命令及退出码、浏览器/视口覆盖、M1 A 组 9 项逐项结论、M1 B 组 5 项阻塞说明、M2 C 组 6 项逐项子测试与完整验收差距、D 组 8 项已提交代码待回归与 12 项未实现状态、失败复现步骤和修复、未测风险、CI 结果，以及 M1/M2 各自是否达到阶段性门槛。Codex 每轮只更新实际执行过的行，并保留未执行任务的真实状态。
 
 > **阶段性通过条件**：A 组 9 项全部真实验收通过，已验收的 11 项无回归，且无阻断性缺陷，即可声明 **M1 独立导航能力已完成回归**；但 **M1 任务总数仍为 20/25**，B 组 5 项必须待 M2 联调后才能完成。不能把 20/25 写成 25/25。
 
