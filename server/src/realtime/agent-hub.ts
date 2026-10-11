@@ -25,9 +25,11 @@ type Session = {
 export class AgentHub {
   private readonly sessions = new Map<string, Session>();
   private readonly sweep: ReturnType<typeof setInterval>;
+  private readonly helloTimeoutMs: number;
   readonly tasks: AgentTasks;
 
-  constructor(private readonly db: DatabaseConnection, options: { sweepIntervalMs: number; taskTimeoutMs?: number }) {
+  constructor(private readonly db: DatabaseConnection, options: { sweepIntervalMs: number; taskTimeoutMs?: number; helloTimeoutMs?: number }) {
+    this.helloTimeoutMs = options.helloTimeoutMs ?? 8_000;
     this.tasks = new AgentTasks(db, options.taskTimeoutMs);
     this.sweep = setInterval(() => this.expire(), options.sweepIntervalMs);
     this.sweep.unref();
@@ -96,7 +98,7 @@ export class AgentHub {
       if (this.sessions.get(agentId) === session && !session.helloReceived) {
         this.reject(session, 1008, "hello timeout");
       }
-    }, 8_000);
+    }, this.helloTimeoutMs);
     session.helloTimeout.unref();
     socket.on("pong", () => {
         if (this.sessions.get(agentId) !== session || !session.pendingProbe) return;
