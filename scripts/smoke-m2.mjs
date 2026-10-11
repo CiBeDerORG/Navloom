@@ -130,6 +130,21 @@ try {
   const statuses = async () => (await call("/api/v1/admin/agents", "GET", undefined, cookie)).payload.agents;
   await waitFor(async () => (await statuses()).filter((a) => a.status === "online").length === 2);
   assert.equal((await statuses()).length, 2);
+  // The Server automatically dispatches a read-only capability probe to each
+  // authenticated Go Agent. Docker may be unavailable on this CI runner.
+  await waitFor(async () => (await statuses()).every((agent) => agent.capabilities !== null));
+  for (const agent of await statuses()) {
+    assert.equal(agent.capabilities.platform, "linux");
+    assert.equal(typeof agent.capabilities.docker.available, "boolean");
+    assert.equal(typeof agent.capabilities.compose.available, "boolean");
+    assert.ok(agent.checkedAt > 0);
+  }
+  const probe = await call("/api/v1/admin/agents/" + paired[0].agentId + "/capability-probe", "POST", {}, cookie);
+  assert.ok(probe.payload.taskId);
+  await waitFor(async () => {
+    const result = await call("/api/v1/admin/agent-tasks/" + probe.payload.taskId, "GET", undefined, cookie);
+    return result.payload.task.status === "succeeded";
+  });
   const detail = await call("/api/v1/admin/agents/" + paired[0].agentId, "GET", undefined, cookie);
   assert.equal(detail.payload.agent.status, "online");
   assert.ok(detail.payload.agent.lastSeenAt > 0);
@@ -147,7 +162,7 @@ try {
   });
   await stop(first.child);
   await stop(restarted);
-  console.log("M2 real Go↔Node WSS: two Agents online, offline/reconnect, persistent identity, revoke isolation PASS");
+  console.log("M2 real Go↔Node WSS: two Agents, directed capability probes, persistent results, reconnect and revoke isolation PASS");
 } finally {
   for (const child of children.reverse()) await stop(child);
   rmSync(temp, { recursive: true, force: true });
