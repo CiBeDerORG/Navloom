@@ -103,6 +103,7 @@ try {
     "req", "-x509", "-newkey", "ed25519", "-nodes", "-days", "2",
     "-keyout", clientKey, "-out", clientCert,
     "-subj", "/CN=Navloom isolated CI Server",
+    "-addext", "basicConstraints=critical,CA:FALSE",
     "-addext", "extendedKeyUsage=clientAuth",
   ], { stdio: "pipe" });
   chmodSync(clientKey, 0o600);
