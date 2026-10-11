@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { test } from "node:test";
 import { AgentMessageSchema, ApiErrorSchema, SystemStatusSchema } from "@navloom/contracts";
 import { buildApp } from "./app.js";
@@ -34,4 +36,12 @@ test("Agent protocol rejects invalid versions, unknown commands and extra fields
   assert.equal(AgentMessageSchema.safeParse({ ...heartbeat, protocol_version: 2 }).success, false);
   assert.equal(AgentMessageSchema.safeParse({ ...heartbeat, type: "shell" }).success, false);
   assert.equal(AgentMessageSchema.safeParse({ ...heartbeat, extra: "unexpected" }).success, false);
+});
+
+test("shared JSON fixtures agree with the Go Agent protocol", () => {
+  const fixtures = resolve(process.cwd(), "../packages/contracts/fixtures");
+  const valid = JSON.parse(readFileSync(resolve(fixtures, "heartbeat.valid.json"), "utf8"));
+  const invalid = JSON.parse(readFileSync(resolve(fixtures, "heartbeat.invalid-version.json"), "utf8"));
+  assert.equal(AgentMessageSchema.safeParse(valid).success, true);
+  assert.equal(AgentMessageSchema.safeParse(invalid).success, false);
 });

@@ -1,0 +1,10 @@
+{
+  "protocol_version": 1,
+  "message_id": "4b0182c1-9312-4a42-a816-24fdfda39b55",
+  "agent_id": "agent-1",
+  "sent_at": "2026-10-11T12:00:00Z",
+  "type": "heartbeat",
+  "payload": {
+    "uptime_seconds": 30
+  }
+}

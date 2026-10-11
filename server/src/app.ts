@@ -20,14 +20,18 @@ export function buildApp(options: FastifyServerOptions = {}) {
 
   app.setErrorHandler(async (error, request, reply) => {
     request.log.error({ err: error }, "request failed");
-    const statusCode =
-      error.statusCode && error.statusCode >= 400 && error.statusCode < 500
+    const rawStatus =
+      error !== null && typeof error === "object" && "statusCode" in error
         ? error.statusCode
-        : 500;
+        : undefined;
+    const statusCode =
+      typeof rawStatus === "number" && rawStatus >= 400 && rawStatus < 500 ? rawStatus : 500;
+    const message = error instanceof Error ? error.message : "Invalid request";
+
     return reply.status(statusCode).send({
       error: {
         code: statusCode === 500 ? "INTERNAL_ERROR" : "BAD_REQUEST",
-        message: statusCode === 500 ? "Internal server error" : error.message,
+        message: statusCode === 500 ? "Internal server error" : message,
       },
     });
   });
