@@ -394,3 +394,5 @@ npm run db:migrate
 **自动化证据追加（非独立验收，2026-10-11）**：[CI 38155682480](https://github.com/CiBeDerORG/Navloom/actions/runs/38155682480) 4/4 通过，新增真实 Go 被动 Agent ↔ Node 主动 Server 的私网 mTLS 配对、页面在线按需连接、Ping/Pong、只读任务和多页面断连/重连隔离脚本。**E 组 T-036～T-059 仍为 `NOT_RUN`**；旧主动 WSS 路径未移除，不能以此宣称完整新架构、真实 NAS 或独立 Codex 验收 PASS。
 
 **反向 WSS v2 清理与双 Agent CI（2026-10-12，非 Codex PASS）**：[CI 38159332832](https://github.com/CiBeDerORG/Navloom/actions/runs/38159332832) 四项均通过；旧 Agent 主动 WSS、Server `/agent` 入站及 JSON heartbeat 均已删除。隔离环境中的两台真实 Go 被动 Agent 与 Node Server 验证了首页单页连接、多页面共享、手动 Ping、A/B 任务隔离、单 Agent 重启、撤销后禁连与零页面状态冻结。**E1～E3 仍须 Codex 独立执行异常浏览器关闭、包级零通信、证书拒绝、真实 NAS 安全验证；T-036～T-059 均维持 `NOT_RUN`，不得凭 CI 直接勾选。**
+
+**T-036/T-041/T-042 代码及独立回归前置（2026-10-12，NOT_RUN）**：Server 新配对必填私网端点和有效 TLS 服务端证书，Go 配对也在缺少端点时拒绝。管理员 Agent 列表/详情新增证书配置状态、WSS IP/端口、v2 hello、连接起始时间、最近 WSS Pong；没有 hello 在 8 秒后断开。须独立检查未登录或只有首页 Cookie 无权读取设备详情；证书私钥/设备凭据不可出现在列表；Pong 不写 SQLite；浏览器最后离开后页面不再引起 Agent 连接。CI 单测不能替代真实环境 PASS，E 组保持 `NOT_RUN`。

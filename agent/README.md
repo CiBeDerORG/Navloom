@@ -65,3 +65,5 @@ go run ./cmd/navloom-agent -config ./agent-config.json
 旧 v1 主动 WSS 身份文件不能静默升级。先停止旧 Agent，安全备份配置和私有凭据；在 Server 管理后台撤销旧设备。配置新的私网监听 IP/端口，生成 Agent TLS 证书，并安全归档旧身份文件（配对命令拒绝覆盖）。管理员生成新的一次性令牌后执行 `-pair`，再启动新版 Agent。重新配对会建立 v2 协议与双向 TLS 信任；旧设备历史数据不会因为撤销而被删除。
 
 无人浏览页面时 Agent 只监听指定私网端口，不主动向 Server 发请求。管理员明确执行的首次配对或 `-check` 属于单次手动操作。页面意外断开后的回收由 Server 与浏览器之间的在线检测处理，并非 Agent 业务心跳。
+
+**配对强制要求**：当前版本不再允许缺少 `endpoint_host`/`endpoint_port`/Agent TLS 证书与私钥的 `-pair`；Server 也不会接收无端点的配对请求。旧主动 WSS 设备应撤销原有身份并重新安全配对。只有有效首页或管理员页面开启时，Server 才会主动建立 Agent WSS；TLS 握手成功但 v2 hello 未完成的连接不显示「已连接」。

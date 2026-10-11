@@ -79,3 +79,5 @@ Agent 在 Server 主动连接后发送一次 v2 `hello`；不会自动下发 Doc
 - **当前限制**：Server 旧 `/agent` 入站、Go Agent 主动连接和 JSON heartbeat 已删除。新 v2 双 Agent 私网 mTLS 的真实进程 CI 已通过；浏览器异常断线、包级零通信、证书轮换、真实 NAS 和 Codex 独立验收仍待执行。生产部署暂未开放。
 
 配置/配对步骤见 [Agent README](../agent/README.md)，实施与 CI 证据见 [M2 实施记录](../planning/M2-IMPLEMENTATION.md)。
+
+**配对与状态补充（2026-10-12）**：`POST /api/v1/agent/pair` 的 `endpoint` 已由可选改为必填，必须包含可信私网 IP、端口和有效 ServerAuth Agent 证书；Server 需要独立 mTLS 客户端证书才可接收配对。管理员设备 API 可读取 `certificateConfigured`、`endpointHost`、`endpointPort`、`connectedAt`、`lastPongAt` 和 `handshakePending`。Pong 时间仅反映当前 Server 运行中的实测情况，不写入 SQLite，不等于历史容器健康状态；8 秒内没有合法 v2 hello 的 WSS 将关闭。普通导航页只可触发全局按需连接，不能调用管理员设备接口。
