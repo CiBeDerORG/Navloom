@@ -120,3 +120,21 @@ export const taskLogs = sqliteTable("task_logs", {
   message: text("message").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 }, (table) => [uniqueIndex("task_logs_task_sequence_uq").on(table.taskId, table.sequence)]);
+
+export const agentTasks = sqliteTable("agent_tasks", {
+  id: text("id").primaryKey(),
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "restrict" }),
+  operation: text("operation").notNull(),
+  status: text("status").notNull(),
+  argumentsJson: text("arguments_json").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  dispatchedAt: integer("dispatched_at", { mode: "timestamp_ms" }).notNull(),
+  deadlineAt: integer("deadline_at", { mode: "timestamp_ms" }).notNull(),
+  finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+  resultJson: text("result_json"),
+}, (table) => [index("agent_tasks_agent_idx").on(table.agentId), index("agent_tasks_deadline_idx").on(table.status, table.deadlineAt)]);
+export const agentCapabilities = sqliteTable("agent_capabilities", {
+  agentId: text("agent_id").primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  capabilitiesJson: text("capabilities_json").notNull(),
+  checkedAt: integer("checked_at", { mode: "timestamp_ms" }).notNull(),
+});

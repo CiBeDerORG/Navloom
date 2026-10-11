@@ -24,7 +24,47 @@ export const ApiErrorSchema = z
   .strict();
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 
-// M0 protocol contract only. WSS authentication and dispatch are implemented in M2.
+// The only executable command in this M2 batch is the read-only capability probe.
+// Other typed operations are reserved and MUST stay disabled until their own
+// authenticated, idempotent Docker/Compose implementations have been reviewed.
+const containerId = z.string().regex(/^[a-f0-9]{12,64}$/);
+export const AgentCommandSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("capability_probe"), arguments: z.object({}).strict() }).strict(),
+  z.object({ operation: z.literal("inventory_refresh"), arguments: z.object({}).strict() }).strict(),
+  ...(["container_start", "container_stop", "container_restart"] as const).map((operation) =>
+    z.object({ operation: z.literal(operation), arguments: z.object({ container_id: containerId }).strict() }).strict()
+  ) as [
+    z.ZodObject<{ operation: z.ZodLiteral<"container_start">; arguments: z.ZodObject<{ container_id: typeof containerId }> }>,
+    z.ZodObject<{ operation: z.ZodLiteral<"container_stop">; arguments: z.ZodObject<{ container_id: typeof containerId }> }>,
+    z.ZodObject<{ operation: z.ZodLiteral<"container_restart">; arguments: z.ZodObject<{ container_id: typeof containerId }> }>,
+  ],
+  z.object({
+    operation: z.literal("compose_deploy"),
+    arguments: z.object({
+      template_id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+      compose_project: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    }).strict(),
+  }).strict(),
+]);
+export type AgentCommand = z.infer<typeof AgentCommandSchema>;
+
+export const AgentCapabilitiesSchema = z.object({
+  platform: z.string().min(1).max(40),
+  architecture: z.string().min(1).max(40),
+  docker: z.object({
+    available: z.boolean(),
+    api_version: z.string().max(40).nullable(),
+    reason: z.enum(["socket_missing", "permission_denied", "daemon_unreachable", "unsupported_host", "version_unavailable"]).nullable(),
+  }).strict(),
+  compose: z.object({
+    available: z.boolean(),
+    version: z.string().max(80).nullable(),
+    reason: z.enum(["cli_missing", "compose_unavailable", "timeout"]).nullable(),
+  }).strict(),
+}).strict();
+export type AgentCapabilities = z.infer<typeof AgentCapabilitiesSchema>;
+
+
 const envelope = {
   protocol_version: z.literal(AGENT_PROTOCOL_VERSION),
   message_id: z.string().uuid(),
@@ -52,10 +92,7 @@ export const AgentMessageSchema = z.discriminatedUnion("type", [
     ...envelope,
     type: z.literal("task_dispatch"),
     task_id: z.string().uuid(),
-    payload: z.object({
-      operation: z.enum(["container_start", "container_stop", "container_restart", "compose_deploy"]),
-      arguments: z.record(z.unknown()),
-    }).strict(),
+    payload: AgentCommandSchema,
   }).strict(),
   z.object({
     ...envelope,
@@ -70,7 +107,8 @@ export const AgentMessageSchema = z.discriminatedUnion("type", [
     payload: z.object({
       success: z.boolean(),
       exit_code: z.number().int().nullable(),
-      error: z.string().optional(),
+      error: z.string().max(300).optional(),
+      capabilities: AgentCapabilitiesSchema.optional(),
     }).strict(),
   }).strict(),
 ]);
