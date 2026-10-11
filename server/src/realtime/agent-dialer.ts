@@ -1,6 +1,5 @@
-import { createHash, X509Certificate } from "node:crypto";
+import { X509Certificate } from "node:crypto";
 import { isIP } from "node:net";
-import { checkServerIdentity } from "node:tls";
 import { WebSocket } from "ws";
 import { AGENT_PROTOCOL_VERSION } from "@navloom/contracts";
 import type { DatabaseConnection } from "../db/client.js";
@@ -76,14 +75,6 @@ export class ReverseAgentDialer {
       headers: {
         "X-Navloom-Agent-Id": agentId,
         "X-Navloom-Protocol-Version": String(AGENT_PROTOCOL_VERSION),
-      },
-      checkServerIdentity: (_hostname, peer) => {
-        const mismatch = checkServerIdentity(row.endpointHost, peer);
-        if (mismatch) return mismatch;
-        if (!peer.raw || createHash("sha256").update(peer.raw).digest("hex") !== row.tlsCertFingerprint) {
-          return new Error("Agent TLS certificate fingerprint mismatch");
-        }
-        return undefined;
       },
     });
     this.connecting.set(agentId, socket);
