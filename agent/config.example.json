@@ -1,5 +1,5 @@
 {
-  "server_url": "wss://navloom.example.com/agent",
+  "server_url": "wss://navloom.example.com",
   "agent_name": "my-nas",
   "token_file": "",
   "endpoint_host": "10.10.20.30",
