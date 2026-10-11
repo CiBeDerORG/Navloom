@@ -259,7 +259,7 @@ onUnmounted(() => {
             <span class="min-w-0"><span class="block truncate font-semibold">{{ agent.name }}</span>
               <span class="block text-xs text-slate-400">{{ agent.platform || "未知系统" }} / {{ agent.architecture || "未知架构" }}</span></span>
             <span class="rounded-full border border-white/20 px-2 py-1 text-xs" :class="agent.status === 'revoked' ? 'text-rose-300' : agent.status === 'online' ? 'text-emerald-300' : 'text-amber-300'">
-              {{ agent.status === "revoked" ? "已撤销" : agent.status === "online" ? "在线" : "离线" }}
+              {{ agent.status === "revoked" ? "已撤销" : agent.status === "online" ? "已连接" : agent.status === "paused" ? "暂停检测" : "未连接" }}
             </span>
           </button>
         </div>
@@ -278,7 +278,7 @@ onUnmounted(() => {
               <dd v-if="selected.capabilities">{{ selected.capabilities.compose.available ? "可用 · " + (selected.capabilities.compose.version || "未知版本") : "不可用 · " + (capabilityReason(selected.capabilities.compose.reason)) }}</dd>
               <dd v-else>未探测</dd>
             </div>
-            <div><dt class="text-slate-400">能力探测时间</dt><dd>{{ formatDate(selected.checkedAt) }}{{ selected.status !== "online" && selected.checkedAt ? "（设备离线，历史探测）" : "" }}</dd></div>
+            <div><dt class="text-slate-400">能力探测时间</dt><dd>{{ formatDate(selected.checkedAt) }}{{ selected.status !== "online" && selected.checkedAt ? "（历史探测结果）" : "" }}</dd></div>
             <div><dt class="text-slate-400">部署资格</dt>
               <dd>{{ selected.status === "online" && selected.capabilities?.docker.available && selected.capabilities?.compose.available ? "具备 Docker/Compose 基础能力（部署功能尚未开放）" : "不可部署（设备离线或能力不足/未知）" }}</dd>
             </div>
