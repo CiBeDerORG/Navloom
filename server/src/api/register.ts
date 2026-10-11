@@ -5,8 +5,10 @@ import { registerAuth } from "./auth.js";
 import { registerNavigation } from "./navigation.js";
 import { registerAgentPairing } from "./agent-pairing.js";
 import type { AgentHub } from "../realtime/agent-hub.js";
+import type { PagePresence } from "../realtime/page-presence.js";
+import { registerProbeSettings } from "./probe-settings.js";
 
-export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureCookies: boolean, hub: AgentHub, agentClientCertificatePem?: string): void {
+export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureCookies: boolean, hub: AgentHub, agentClientCertificatePem?: string, presence?: PagePresence): void {
   const access = new Access(db, secureCookies);
   // JSON requests require a non-simple header. Cross-site forms cannot send it;
   // cross-origin fetches require CORS preflight, which this server does not allow.
@@ -42,4 +44,5 @@ export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureC
   registerAuth(app, db, access);
   registerNavigation(app, db, access);
   registerAgentPairing(app, db, access, hub, agentClientCertificatePem);
+  if (presence) registerProbeSettings(app, access, presence);
 }

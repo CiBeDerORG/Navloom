@@ -8,6 +8,8 @@ import { WebSocket } from "ws";
 import type { DatabaseConnection } from "../db/client.js";
 import { ApiFailure, AttemptLimiter } from "../security/access.js";
 import { verifyAgentCredential } from "../api/agent-pairing.js";
+import { Access } from "../security/access.js";
+import type { PagePresence } from "./page-presence.js";
 
 const MAX_MESSAGE_BYTES = 64 * 1024;
 const AGENT_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -19,6 +21,9 @@ type Session = {
   lastCommunication: number;
   helloReceived: boolean;
   seenMessages: Set<string>;
+  mode: "legacy" | "reverse";
+  pendingProbe: ReturnType<typeof setTimeout> | null;
+  lastProbeAt: number | null;
 };
 
 export class AgentHub {
@@ -37,7 +42,9 @@ export class AgentHub {
   isOnline(agentId: string): boolean {
     const session = this.sessions.get(agentId);
     return Boolean(session && session.socket.readyState === WebSocket.OPEN &&
-      Date.now() - session.lastCommunication <= this.heartbeatTimeoutMs);
+      (session.mode === "reverse"
+        ? session.helloReceived
+        : Date.now() - session.lastCommunication <= this.heartbeatTimeoutMs));
   }
 
   requestCapabilityProbe(agentId: string): string {
@@ -50,14 +57,46 @@ export class AgentHub {
     return this.tasks.dispatchCapabilityProbe(agentId, session.socket);
   }
 
-  connect(agentId: string, socket: WebSocket): void {
+  /** Connectivity probes use only WSS Ping/Pong and never write heartbeat rows to SQLite. */
+  probeReverseAll(): number {
+    let sent = 0;
+    for (const session of this.sessions.values()) {
+      if (session.mode !== "reverse" || !session.helloReceived ||
+          session.socket.readyState !== WebSocket.OPEN || session.pendingProbe) continue;
+      try {
+        session.socket.ping();
+        sent++;
+        session.pendingProbe = setTimeout(() => {
+          if (this.sessions.get(session.agentId) === session) {
+            this.disconnect(session.agentId, 4000, "Pong timeout");
+          }
+        }, 10_000);
+        session.pendingProbe.unref();
+      } catch {
+        this.disconnect(session.agentId, 4000, "Ping failed");
+      }
+    }
+    return sent;
+  }
+
+  connect(agentId: string, socket: WebSocket, mode: "legacy" | "reverse" = "legacy"): void {
     // Newest valid connection wins. Old socket callbacks cannot modify the new session.
     this.disconnect(agentId, 4001, "replaced");
     const session: Session = {
       agentId, socket, lastCommunication: Date.now(), helloReceived: false, seenMessages: new Set(),
+      mode, pendingProbe: null, lastProbeAt: null,
     };
     this.sessions.set(agentId, session);
-    this.touch(session);
+    if (mode === "legacy") this.touch(session);
+    if (mode === "reverse") {
+      socket.on("pong", () => {
+        if (this.sessions.get(agentId) !== session || !session.pendingProbe) return;
+        clearTimeout(session.pendingProbe);
+        session.pendingProbe = null;
+        session.lastCommunication = Date.now();
+        session.lastProbeAt = session.lastCommunication;
+      });
+    }
     socket.on("message", (data, isBinary) => {
       if (this.sessions.get(agentId) !== session) return;
       if (isBinary) { socket.close(1003, "text required"); return; }
@@ -71,6 +110,8 @@ export class AgentHub {
     const session = this.sessions.get(agentId);
     if (!session) return;
     this.sessions.delete(agentId);
+    if (session.pendingProbe) clearTimeout(session.pendingProbe);
+    session.pendingProbe = null;
     this.tasks.markAgentUnknown(agentId);
     if (session.socket.readyState === WebSocket.OPEN) session.socket.close(code, reason);
     else session.socket.terminate();
@@ -84,6 +125,8 @@ export class AgentHub {
   private detach(session: Session): void {
     if (this.sessions.get(session.agentId) === session) {
       this.sessions.delete(session.agentId);
+      if (session.pendingProbe) clearTimeout(session.pendingProbe);
+      session.pendingProbe = null;
       this.tasks.markAgentUnknown(session.agentId);
     }
   }
@@ -118,7 +161,9 @@ export class AgentHub {
     if (!parsed.success) { this.reject(session, 1008, "invalid protocol message"); return; }
     const message = parsed.data;
     if (message.agent_id !== session.agentId ||
-        !["hello", "heartbeat", "task_result"].includes(message.type) ||
+        !(session.mode === "reverse"
+          ? ["hello", "task_result"].includes(message.type)
+          : ["hello", "heartbeat", "task_result"].includes(message.type)) ||
         (message.type === "hello" && session.helloReceived) ||
         (message.type !== "hello" && !session.helloReceived) ||
         session.seenMessages.has(message.message_id)) {
@@ -133,9 +178,11 @@ export class AgentHub {
     if (message.type === "hello") {
       session.helloReceived = true;
       this.touch(session, message.payload.version);
-      // Safe read-only probe on first hello. Docker actions remain disabled.
-      try { this.tasks.dispatchCapabilityProbe(session.agentId, session.socket); }
-      catch { /* A delivery failure leaves an unknown task, never a false failure. */ }
+      // Reverse mode is demand-driven: no implicit capability task or JSON heartbeat.
+      if (session.mode === "legacy") {
+        try { this.tasks.dispatchCapabilityProbe(session.agentId, session.socket); }
+        catch { /* Delivery failure remains unknown. */ }
+      }
     } else if (message.type === "task_result") {
       if (!this.tasks.acceptResult(session.agentId, message)) {
         this.reject(session, 1008, "task result rejected");
@@ -150,7 +197,7 @@ export class AgentHub {
   private expire(): void {
     this.tasks.expire();
     for (const [id, session] of this.sessions) {
-      if (Date.now() - session.lastCommunication > this.heartbeatTimeoutMs) {
+      if (session.mode === "legacy" && Date.now() - session.lastCommunication > this.heartbeatTimeoutMs) {
         this.disconnect(id, 4000, "heartbeat timeout");
       }
     }
@@ -163,10 +210,39 @@ function loopback(address: string | undefined): boolean {
   return normalized === "::1" || (isIP(normalized) === 4 && normalized.startsWith("127."));
 }
 
-export function registerAgentTransport(app: FastifyInstance, db: DatabaseConnection, hub: AgentHub, production: boolean): void {
+export function registerAgentTransport(
+  app: FastifyInstance, db: DatabaseConnection, hub: AgentHub, production: boolean, presence?: PagePresence,
+): void {
   const limiter = new AttemptLimiter(20);
   app.register(async (scope) => {
     await scope.register(websocket, { options: { maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false } });
+    if (presence) {
+      const access = new Access(db, production);
+      scope.get("/api/v1/presence", {
+        websocket: true,
+        preValidation: async (request) => {
+          const origin = request.headers.origin;
+          let originAllowed = false;
+          if (typeof origin === "string") {
+            try {
+              const url = new URL(origin);
+              originAllowed = ["http:", "https:"].includes(url.protocol) &&
+                url.host === request.headers.host && !url.username && !url.password;
+            } catch { /* reject malformed origins */ }
+          }
+          if (!originAllowed) throw new ApiFailure(403, "ORIGIN_REJECTED", "页面来源不受信任");
+          if (!access.admin(request) && !access.home(request)) {
+            throw new ApiFailure(401, "HOME_ACCESS_REQUIRED", "请先登录或解锁导航首页");
+          }
+        },
+      }, (socket, request) => {
+        if (!access.admin(request) && !access.home(request)) {
+          socket.close(1008, "credential expired");
+          return;
+        }
+        presence.add(socket, request, access);
+      });
+    }
     scope.get("/agent", {
       websocket: true,
       preValidation: async (request) => {

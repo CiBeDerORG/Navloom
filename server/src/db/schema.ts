@@ -137,6 +137,12 @@ export const agentTasks = sqliteTable("agent_tasks", {
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   resultJson: text("result_json"),
 }, (table) => [index("agent_tasks_agent_idx").on(table.agentId), index("agent_tasks_deadline_idx").on(table.status, table.deadlineAt)]);
+export const agentProbeSettings = sqliteTable("agent_probe_settings", {
+  id: text("id").primaryKey(),
+  mode: text("mode", { enum: ["auto", "manual"] }).notNull(),
+  intervalMs: integer("interval_ms").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
 export const agentCapabilities = sqliteTable("agent_capabilities", {
   agentId: text("agent_id").primaryKey().references(() => agents.id, { onDelete: "cascade" }),
   capabilitiesJson: text("capabilities_json").notNull(),

@@ -24,6 +24,8 @@ export class ReverseAgentDialer {
   private active = false;
   private readonly sockets = new Map<string, WebSocket>();
   private readonly connecting = new Map<string, WebSocket>();
+  private readonly retries = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly retryDelay = new Map<string, number>();
 
   constructor(
     private readonly db: DatabaseConnection,
@@ -35,7 +37,10 @@ export class ReverseAgentDialer {
     if (this.active === active) return;
     this.active = active;
     if (!active) {
-      for (const id of [...this.connecting.keys(), ...this.sockets.keys()]) this.closeAgent(id);
+      for (const timer of this.retries.values()) clearTimeout(timer);
+      this.retries.clear();
+      this.retryDelay.clear();
+      for (const id of new Set([...this.connecting.keys(), ...this.sockets.keys()])) this.closeAgent(id);
       return;
     }
     if (!this.identity) return; // fail closed: no mTLS identity means no Agent connections.
@@ -47,6 +52,9 @@ export class ReverseAgentDialer {
 
   connectAgent(agentId: string): boolean {
     if (!this.active || !this.identity || this.connecting.has(agentId) || this.sockets.has(agentId)) return false;
+    const retry = this.retries.get(agentId);
+    if (retry) clearTimeout(retry);
+    this.retries.delete(agentId);
     const row = this.db.sqlite.prepare(
       "SELECT id, endpoint_host AS endpointHost, endpoint_port AS endpointPort, tls_cert_pem AS tlsCertPem, tls_cert_fingerprint AS tlsCertFingerprint FROM agents WHERE id = ? AND revoked_at IS NULL",
     ).get(agentId) as EndpointRow | undefined;
@@ -88,17 +96,35 @@ export class ReverseAgentDialer {
         return;
       }
       this.connecting.delete(agentId);
+      this.retryDelay.delete(agentId);
       this.sockets.set(agentId, socket);
-      this.hub.connect(agentId, socket);
+      this.hub.connect(agentId, socket, "reverse");
     });
     socket.once("close", () => {
       if (this.connecting.get(agentId) === socket) this.connecting.delete(agentId);
       if (this.sockets.get(agentId) === socket) this.sockets.delete(agentId);
+      if (this.active) this.scheduleReconnect(agentId);
     });
     return true;
   }
 
+  private scheduleReconnect(agentId: string): void {
+    if (!this.active || this.retries.has(agentId) || this.connecting.has(agentId) || this.sockets.has(agentId)) return;
+    const delay = this.retryDelay.get(agentId) ?? 1_000;
+    this.retryDelay.set(agentId, Math.min(delay * 2, 30_000));
+    const timer = setTimeout(() => {
+      this.retries.delete(agentId);
+      this.connectAgent(agentId);
+    }, delay);
+    timer.unref();
+    this.retries.set(agentId, timer);
+  }
+
   closeAgent(agentId: string): void {
+    const retry = this.retries.get(agentId);
+    if (retry) clearTimeout(retry);
+    this.retries.delete(agentId);
+    this.retryDelay.delete(agentId);
     const connecting = this.connecting.get(agentId);
     this.connecting.delete(agentId);
     const connected = this.sockets.get(agentId);
