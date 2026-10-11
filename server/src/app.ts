@@ -10,7 +10,7 @@ import { PagePresence } from "./realtime/page-presence.js";
 
 export function buildApp(
   options: FastifyServerOptions = {},
-  dependencies?: { database: DatabaseConnection; secureCookies?: boolean; agentSweepIntervalMs?: number; agentTaskTimeoutMs?: number; agentClientIdentity?: AgentClientIdentity | null },
+  dependencies?: { database: DatabaseConnection; secureCookies?: boolean; agentSweepIntervalMs?: number; agentTaskTimeoutMs?: number; agentClientIdentity?: AgentClientIdentity | null; presenceSweepIntervalMs?: number; presencePongTimeoutMs?: number },
 ) {
   const app = Fastify({ bodyLimit: 64 * 1024, ...options });
 
@@ -24,7 +24,10 @@ export function buildApp(
       taskTimeoutMs: dependencies.agentTaskTimeoutMs ?? 15_000,
     });
     const dialer = new ReverseAgentDialer(dependencies.database, dependencies.agentClientIdentity ?? null, hub);
-    const presence = new PagePresence(dependencies.database, dialer, hub);
+    const presence = new PagePresence(dependencies.database, dialer, hub, {
+      sweepIntervalMs: dependencies.presenceSweepIntervalMs,
+      pongTimeoutMs: dependencies.presencePongTimeoutMs,
+    });
     registerM1(app, dependencies.database, dependencies.secureCookies ?? false, hub, dependencies.agentClientIdentity?.certificatePem, presence);
     registerPagePresenceTransport(app, dependencies.database, presence, dependencies.secureCookies ?? false);
     app.addHook("onClose", async () => { presence.shutdown(); hub.shutdown(); });
