@@ -101,7 +101,7 @@ test("M2: expired and malformed tokens are rejected and failed attempts are limi
 test("M2: admin rename/revoke persists; homepage credential cannot manage devices", async (t) => {
   const { app, db, cookie, endpoint } = await setup(t);
   const issued = await app.inject({ method: "POST", url: api + "/admin/agents/pair-tokens", headers: { ...json, cookie }, payload: {} });
-  const paired = await app.inject({ method: "POST", url: api + "/agent/pair", headers: json, payload: { token: issued.json().token, ...details } });
+  const paired = await app.inject({ method: "POST", url: api + "/agent/pair", headers: json, payload: { token: issued.json().token, ...details, endpoint } });
   const { agentId, credential } = paired.json() as { agentId: string; credential: string };
   assert.equal((await app.inject({ method: "GET", url: api + "/admin/agents" })).statusCode, 401);
   assert.equal((await app.inject({ method: "PATCH", url: api + "/admin/agents/" + agentId, headers: json, payload: { name: "hijacked" } })).statusCode, 401);
