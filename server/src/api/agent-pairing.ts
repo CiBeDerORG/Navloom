@@ -107,6 +107,20 @@ export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnectio
     return { agents: agents.map((agent) => ({ ...agent, status: agent.revokedAt === null ? (hub.isOnline(agent.id) ? "online" : "offline") : "revoked" })) };
   });
 
+  app.get("/api/v1/admin/agents/:id", async (request) => {
+    access.requireAdmin(request);
+    const id = idRequest.safeParse(request.params);
+    if (!id.success) throw new ApiFailure(400, "INVALID_INPUT", "设备 ID 无效");
+    const agent = db.sqlite.prepare(
+      "SELECT id, name, version, platform, architecture, registered_at AS registeredAt, last_seen_at AS lastSeenAt, revoked_at AS revokedAt FROM agents WHERE id = ?",
+    ).get(id.data.id) as {
+      id: string; name: string; version: string | null; platform: string | null;
+      architecture: string | null; registeredAt: number | null; lastSeenAt: number | null; revokedAt: number | null;
+    } | undefined;
+    if (!agent) throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在");
+    return { agent: { ...agent, status: agent.revokedAt !== null ? "revoked" : hub.isOnline(agent.id) ? "online" : "offline" } };
+  });
+
   app.patch("/api/v1/admin/agents/:id", async (request) => {
     access.requireAdmin(request);
     const id = idRequest.safeParse(request.params);
