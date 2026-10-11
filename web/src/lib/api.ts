@@ -70,3 +70,19 @@ export function iconIsUrl(icon: string | null): boolean {
     return false;
   }
 }
+
+export type AgentDevice = {
+  id: string; name: string; version: string | null; platform: string | null;
+  architecture: string | null; registeredAt: number | null; lastSeenAt: number | null;
+  revokedAt: number | null; status: "offline" | "revoked";
+};
+export const getAgents = () => request<{ agents: AgentDevice[] }>("/admin/agents");
+export const issueAgentPairToken = () => request<{ token: string; expiresAt: string }>(
+  "/admin/agents/pair-tokens", { method: "POST", body: "{}" },
+);
+export const renameAgent = (id: string, name: string) => request<{ ok: boolean }>(
+  "/admin/agents/" + encodeURIComponent(id), { method: "PATCH", body: payload({ name }) },
+);
+export const revokeAgent = (id: string) => request<{ ok: boolean }>(
+  "/admin/agents/" + encodeURIComponent(id) + "/revoke", { method: "POST", body: "{}" },
+);

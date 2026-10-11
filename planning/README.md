@@ -14,6 +14,7 @@
 | [ROADMAP.md](./ROADMAP.md) | 里程碑、交付顺序和完成条件 |
 | [M0-IMPLEMENTATION.md](./M0-IMPLEMENTATION.md) | M0 工程初始化实施记录与 CI 验收证据 |
 | [M1-IMPLEMENTATION.md](./M1-IMPLEMENTATION.md) | M1 首批认证与导航功能、测试及未完成项 |
+| [M2-IMPLEMENTATION.md](./M2-IMPLEMENTATION.md) | M2 首批 Agent 配对、设备登记及后续验收依赖 |
 | [M1-CODEX-REGRESSION.md](./M1-CODEX-REGRESSION.md) | M1 尚未验收的 14 项任务与 Codex 浏览器回归执行单 |
 | [TRACEABILITY.md](./TRACEABILITY.md) | 需求 ID → 任务 ID 对照表 |
 | [tasks/README.md](./tasks/README.md) | 任务索引、优先级、状态、执行约定 |
