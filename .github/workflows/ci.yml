@@ -158,3 +158,5 @@ jobs:
         run: npm run build:contracts && npm run build:server
       - name: Two real Go Agents connect to Node Server
         run: node scripts/smoke-m2.mjs
+      - name: Real Go passive Agent and Node active Server mTLS WSS
+        run: node scripts/smoke-m2-reverse.mjs
