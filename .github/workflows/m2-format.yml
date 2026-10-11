@@ -1,0 +1,33 @@
+name: One-time M2 Go formatting
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/m2-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+      - name: Format Go sources
+        run: |
+          gofmt -w agent/internal/protocol/message.go agent/internal/protocol/task_test.go agent/internal/probe/docker.go agent/internal/probe/docker_test.go agent/internal/transport/client.go
+      - name: Commit formatting
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agent/internal/protocol/message.go agent/internal/protocol/task_test.go agent/internal/probe/docker.go agent/internal/probe/docker_test.go agent/internal/transport/client.go
+          if ! git diff --cached --quiet; then
+            git commit -m "style(m2): gofmt Agent task and capability code"
+            git push origin HEAD:main
+          fi
