@@ -1,5 +1,4 @@
 import { isIP } from "node:net";
-import { randomUUID } from "node:crypto";
 import websocket from "@fastify/websocket";
 import { AgentMessageSchema, AGENT_PROTOCOL_VERSION } from "@navloom/contracts";
 import type { FastifyInstance } from "fastify";
