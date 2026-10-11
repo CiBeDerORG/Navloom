@@ -1,25 +1,24 @@
-# Navloom Agent（M0）
+# Navloom Agent（M2 配对阶段）
 
-独立 Go 程序，未来部署在 NAS/FNOS/Linux 设备上；Server 固定在云端。M0 只包含配置解析、TLS 安全限制、可达性检查、日志、版本输出与优雅退出。
+Go Agent 可使用管理员签发的一次性令牌配对到 Navloom Server。**WSS、心跳、容器发现与 Docker 操作尚未实现**；配对成功只代表获得设备身份，不代表设备在线。
 
 ```bash
+# 先在 Navloom 管理后台的「应用实例管理」生成 10 分钟有效的一次性令牌。
+# 在 Agent 设备上配置 server_url（WSS 地址）和 token_file（本机私密文件路径）。
 cd agent
 go test ./...
-go run ./cmd/navloom-agent -version
-NAVLOOM_SERVER_URL=wss://navloom.example.com/agent go run ./cmd/navloom-agent -check
+read -r -s -p "一次性接入令牌: " PAIR_TOKEN; echo
+printf '%s\n' "$PAIR_TOKEN" | NAVLOOM_SERVER_URL=wss://navloom.example.com/agent \
+  NAVLOOM_AGENT_TOKEN_FILE="$HOME/.config/navloom/identity.json" \
+  go run ./cmd/navloom-agent -pair
+unset PAIR_TOKEN
 ```
 
-`-check` 仅测试 TCP/TLS 连接，**不执行 WebSocket 握手**；在 M2 Server WSS 端点实现前，不表示 Agent 已注册或在线。
+- `-pair` 从标准输入读取令牌，**不接受命令行明文令牌参数**。建议使用 `read -s` 防止终端回显；不要将令牌写入 shell 历史、日志或 Git。
+- `token_file` 使用私有目录和 `0600` 权限存储独立 Agent ID + 长期随机凭据，**不会覆盖已有身份文件**。请安全保存该文件，遗失后须撤销旧设备并重新配对。
+- `server_url` 必须使用 `wss://`，Go 客户端自动使用同一域名的 `https://.../api/v1/agent/pair` 进行首次配对。仅显式开启 `NAVLOOM_ALLOW_INSECURE_DEV=true` 且使用 loopback 地址时允许 `ws://` 和 HTTP。
+- Go HTTP 客户端验证 TLS 证书，不跟随重定向，不在错误日志中输出令牌或设备凭据。
+- `-check` 仅检测 TCP/TLS 可达性，**不是** WebSocket 握手。
+- 普通启动仍是等待退出信号的骨架；M2 下一批实现 WSS 身份校验、心跳与重连。
 
-配置：
-- `-config path/to/agent.json`：可选 JSON 文件，格式见 `config.example.json`。
-- `NAVLOOM_SERVER_URL`：WSS URL，必填（可由 JSON 配置提供）。
-- `NAVLOOM_AGENT_NAME`：设备显示名称。
-- `NAVLOOM_AGENT_TOKEN_FILE`：未来用于存储独立设备凭据（M0 尚未读取）。
-- `NAVLOOM_ALLOW_INSECURE_DEV=true`：仅允许本机回环地址的 `ws://`，不能用于远程地址。
-
-```bash
-./scripts/build-linux.sh
-```
-
-生成 Linux amd64/arm64 静态二进制到 `agent/bin/`。M2 再引入 WSS 配对、心跳与 Docker Go SDK；M3 再实现 Compose 安装。
+配置示例见 [config.example.json](./config.example.json)，跨平台构建使用 `./scripts/build-linux.sh`。

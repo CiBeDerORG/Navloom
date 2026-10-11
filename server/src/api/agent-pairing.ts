@@ -8,7 +8,6 @@ const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const tokenDigest = (token: string): string => createHash("sha256").update(token).digest("hex");
 const newSecret = (): string => randomBytes(32).toString("base64url");
 const tokenTTL = 10 * 60 * 1000;
-const pairLimiter = new AttemptLimiter(8);
 const pairRequest = z.object({
   token: z.string().regex(tokenPattern),
   name: z.string().trim().min(1).max(80),
@@ -35,6 +34,7 @@ export function verifyAgentCredential(db: DatabaseConnection, agentId: string, c
 }
 
 export function registerAgentPairing(app: FastifyInstance, db: DatabaseConnection, access: Access): void {
+  const pairLimiter = new AttemptLimiter(8);
   app.post("/api/v1/admin/agents/pair-tokens", async (request, reply) => {
     const admin = access.requireAdmin(request);
     const now = Date.now();
