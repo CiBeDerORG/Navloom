@@ -54,7 +54,23 @@ export const agents = sqliteTable("agents", {
   platform: text("platform"),
   architecture: text("architecture"),
   lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
+  registeredAt: integer("registered_at", { mode: "timestamp_ms" }),
   revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+}, (table) => [uniqueIndex("agents_credential_hash_uq").on(table.credentialHash)]);
+export const agentPairTokens = sqliteTable("agent_pair_tokens", {
+  id: text("id").primaryKey(),
+  tokenHash: text("token_hash").notNull().unique(),
+  createdByAdminId: text("created_by_admin_id").notNull().references(() => adminUsers.id, { onDelete: "restrict" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  usedAt: integer("used_at", { mode: "timestamp_ms" }),
+  agentId: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
+}, (table) => [index("agent_pair_tokens_expiry_idx").on(table.expiresAt)]);
+export const agentAuditEvents = sqliteTable("agent_audit_events", {
+  id: text("id").primaryKey(),
+  agentId: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
+  event: text("event").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 export const containerInventory = sqliteTable("container_inventory", {
   id: text("id").primaryKey(),

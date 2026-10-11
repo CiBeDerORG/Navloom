@@ -2,7 +2,26 @@
   "version": "7",
   "dialect": "sqlite",
   "entries": [
-    { "idx": 0, "version": "6", "when": 1760140800000, "tag": "0000_initial", "breakpoints": true },
-    { "idx": 1, "version": "6", "when": 1760140801000, "tag": "0001_m1_navigation", "breakpoints": true }
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1760140800000,
+      "tag": "0000_initial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1760140801000,
+      "tag": "0001_m1_navigation",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1760140802000,
+      "tag": "0002_m2_agent_pairing",
+      "breakpoints": true
+    }
   ]
 }

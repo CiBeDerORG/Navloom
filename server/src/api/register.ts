@@ -3,6 +3,7 @@ import type { DatabaseConnection } from "../db/client.js";
 import { Access, ApiFailure } from "../security/access.js";
 import { registerAuth } from "./auth.js";
 import { registerNavigation } from "./navigation.js";
+import { registerAgentPairing } from "./agent-pairing.js";
 
 export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureCookies: boolean): void {
   const access = new Access(db, secureCookies);
@@ -39,4 +40,5 @@ export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureC
   });
   registerAuth(app, db, access);
   registerNavigation(app, db, access);
+  registerAgentPairing(app, db, access);
 }
