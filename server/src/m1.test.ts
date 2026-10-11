@@ -82,9 +82,24 @@ test("M1: navigation is independent, ordered and rejects unsafe URLs", async (t)
   const second = await app.inject({ method: "POST", url: route + "/admin/navigation/cards", headers, payload: { title: "Local", url: "http://192.168.1.1:8080/" } });
   assert.equal(second.statusCode, 201);
   const firstId = first.json().id as string, secondId = second.json().id as string;
+  assert.equal((await app.inject({ method: "PATCH", url: route + "/admin/navigation/groups/" + groupId, headers, payload: { name: "常用工具" } })).statusCode, 200);
+  assert.equal((await app.inject({ method: "PATCH", url: route + "/admin/navigation/cards/" + firstId, headers, payload: {
+    title: "GitHub Docs", url: "https://docs.github.com", groupId, icon: "📚",
+    description: "开发文档", openTarget: "_self",
+  } })).statusCode, 200);
+  assert.equal((await app.inject({ method: "PUT", url: route + "/admin/navigation/order", headers, payload: { groups: [groupId], cards: [] } })).statusCode, 409);
   assert.equal((await app.inject({ method: "PUT", url: route + "/admin/navigation/order", headers, payload: { groups: [groupId], cards: [{ id: secondId, groupId }, { id: firstId, groupId }] } })).statusCode, 200);
   const read = (await app.inject({ method: "GET", url: route + "/admin/navigation", headers: { cookie } })).json();
   assert.deepEqual(read.cards.map((card: { id: string }) => card.id), [secondId, firstId]);
+  assert.equal(read.groups[0].name, "常用工具");
+  assert.equal(read.cards[1].title, "GitHub Docs");
+  const publicResponse = await app.inject({ method: "GET", url: route + "/home/navigation", headers: { cookie } });
+  assert.equal(publicResponse.statusCode, 200);
+  const publicCard = publicResponse.json().groups[0].cards[1];
+  assert.equal(publicCard.title, "GitHub Docs");
+  assert.equal(publicCard.openTarget, "_self");
+  assert.equal(Object.hasOwn(publicCard, "groupId"), false);
+  assert.equal(Object.hasOwn(publicCard, "linkTargetId"), false);
   const deletedGroup = await app.inject({ method: "DELETE", url: route + "/admin/navigation/groups/" + groupId, headers: { ...csrf, cookie } });
   assert.equal(deletedGroup.statusCode, 200);
   assert.equal(deletedGroup.json().movedCards, 2);
