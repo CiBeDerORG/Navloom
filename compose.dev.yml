@@ -4,7 +4,7 @@ services:
     image: node:22-bookworm
     working_dir: /workspace
     command: >
-      sh -lc "npm install --no-audit --no-fund && npm run db:migrate && npm run dev"
+      sh -lc "npm ci --no-audit --no-fund && npm run db:migrate && npm run dev"
     environment:
       NODE_ENV: development
       HOST: 0.0.0.0

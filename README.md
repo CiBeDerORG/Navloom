@@ -28,7 +28,7 @@
 ```bash
 git clone https://github.com/CiBeDerORG/Navloom.git
 cd Navloom
-npm install
+npm ci
 npm run build:contracts
 npm run db:migrate
 npm run dev

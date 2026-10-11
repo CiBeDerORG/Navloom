@@ -13,7 +13,7 @@ M0 没有管理员认证、Agent 接入和管理 API，**不要部署到公网**
 
 从仓库根目录：
 ```bash
-npm install
+npm ci
 npm run build:contracts
 npm run db:migrate
 npm run dev:server
