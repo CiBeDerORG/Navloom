@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import AdminShell from "../components/AdminShell.vue";
 import {
-  getAgents, issueAgentPairToken, renameAgent, revokeAgent, type AgentDevice,
+  getAgents, issueAgentPairToken, renameAgent, revokeAgent, requestAgentCapabilityProbe, type AgentDevice,
 } from "../lib/api";
 
 const agents = ref<AgentDevice[]>([]);
@@ -81,6 +81,10 @@ async function saveRename() {
   if (!id) return;
   await perform(() => renameAgent(id, editingName.value), "设备名称已保存");
   if (!error.value) editingId.value = null;
+}
+
+async function probeAgent(agent: AgentDevice) {
+  await perform(() => requestAgentCapabilityProbe(agent.id), "能力探测已下发，结果将随设备状态自动刷新。");
 }
 
 async function revoke(agent: AgentDevice) {
@@ -171,6 +175,18 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer); });
             <div><dt class="text-slate-400">版本</dt><dd>{{ selected.version || "—" }}</dd></div>
             <div><dt class="text-slate-400">登记时间</dt><dd>{{ formatDate(selected.registeredAt) }}</dd></div>
             <div><dt class="text-slate-400">最后通信</dt><dd>{{ formatDate(selected.lastSeenAt) }}</dd></div>
+            <div><dt class="text-slate-400">Docker API</dt>
+              <dd v-if="selected.capabilities">{{ selected.capabilities.docker.available ? "可连接 · API " + (selected.capabilities.docker.api_version || "未知") : "不可用 · " + (selected.capabilities.docker.reason || "未知原因") }}</dd>
+              <dd v-else>未探测（不代表可部署）</dd>
+            </div>
+            <div><dt class="text-slate-400">Compose v2</dt>
+              <dd v-if="selected.capabilities">{{ selected.capabilities.compose.available ? "可用 · " + (selected.capabilities.compose.version || "未知版本") : "不可用 · " + (selected.capabilities.compose.reason || "未知原因") }}</dd>
+              <dd v-else>未探测</dd>
+            </div>
+            <div><dt class="text-slate-400">能力探测时间</dt><dd>{{ formatDate(selected.checkedAt) }}</dd></div>
+            <div><dt class="text-slate-400">部署资格</dt>
+              <dd>{{ selected.status === "online" && selected.capabilities?.docker.available && selected.capabilities?.compose.available ? "具备 Docker/Compose 基础能力（部署功能尚未开放）" : "不可部署（设备离线或能力不足/未知）" }}</dd>
+            </div>
           </dl>
           <form v-if="editingId === selected.id" class="flex flex-wrap gap-2" @submit.prevent="saveRename">
             <label class="sr-only" for="agent-name">设备名称</label>
@@ -180,6 +196,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer); });
             <button type="button" class="rounded-lg border border-white/20 px-3 py-2 text-sm" @click="editingId = null">取消</button>
           </form>
           <div v-else-if="selected.status !== 'revoked'" class="flex flex-wrap gap-3">
+            <button type="button" :disabled="busy || selected.status !== 'online'" class="rounded-lg border border-sky-500/40 px-3 py-2 text-sm disabled:opacity-50" @click="probeAgent(selected)">刷新 Docker 能力</button>
             <button type="button" class="rounded-lg border border-white/20 px-3 py-2 text-sm" @click="beginRename(selected)">重命名</button>
             <button type="button" :disabled="busy" class="rounded-lg border border-rose-500/30 px-3 py-2 text-sm text-rose-300 disabled:opacity-50" @click="revoke(selected)">撤销凭据</button>
           </div>
@@ -190,7 +207,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer); });
 
     <section class="rounded-2xl border border-dashed border-white/20 p-5 text-sm text-slate-400">
       <h2 class="font-semibold text-slate-200">容器池与应用实例</h2>
-      <p class="mt-2">等待后续 M2 WSS、Docker 发现和实例查询。设备在线不代表 Docker 已可操作；容器不会自动创建导航卡片。</p>
+      <p class="mt-2">等待后续 M2 Docker 容器发现和实例查询。设备在线不代表 Docker 已可操作；容器不会自动创建导航卡片。</p>
     </section>
   </AdminShell>
 </template>
