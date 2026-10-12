@@ -259,3 +259,11 @@ export const savePreparedInstallation = (data: {
   request<{ taskId: string; status: "prepared"; created: boolean; dispatched: false; message: string }>(
     "/admin/install/prepared-tasks", { method: "POST", body: payload(data) },
   );
+
+export type PreparedInstallTask = {
+  id: string; agentId: string; agentName: string; templateId: string;
+  templateVersion: string; navigationTitle: string; status: "prepared";
+  createdAt: number; updatedAt: number;
+};
+export const getPreparedInstallations = () =>
+  request<{ tasks: PreparedInstallTask[] }>("/admin/install/prepared-tasks");
