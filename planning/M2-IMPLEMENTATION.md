@@ -169,3 +169,9 @@ npm run test:go
 - **断开/超时/重启**：隔离 Node 测试增加 A/B task_id 定向隔离、同设备任务发送去重、断连后 `unknown`、未撤销设备迟到结果关联、deadline 过期 `unknown`、Server 新实例构建时把未完成 `sent` 迁移为 `unknown`，并确认**不重新投递**旧命令。
 - **唯一 Ping/Pong 超时**：Hub 维持生产默认 10 秒 Pong 超时，新注入参数仅供隔离测试模拟无 Pong 的 Agent；待定 Ping 不叠加，A 超时后只关闭 A、A 未决任务转 `unknown`，B 仍在线且其任务不变；迟到 Pong 不能让已断开的 A 复活；Ping 不修改 SQLite 历史业务时间。
 - 对应文件：`server/src/realtime/agent-tasks.ts`、`server/src/realtime/agent-hub.ts`、`server/src/m2-task-recovery.test.ts`、`server/src/m2-pong-timeout.test.ts`。代码及回归不等于真实 NAS 抓包、真实 Docker 操作或 Codex 独立 PASS；原任务复选框保持不变。
+
+## T-040/T-047 半开浏览器与零页面 TCP 连接证据（2026-10-12，非 Codex PASS）
+
+- [CI 38188149086](https://github.com/CiBeDerORG/Navloom/actions/runs/38188149086) **4/4 通过**：`m2-presence.test.ts` 使用真实浏览器 WSS 客户端模拟**TCP/WebSocket 保持连接但不自动回应 Pong**的半开页面；缩短的 sweep/Pong 超时仅在隔离测试配置中生效。Server 在有限时间回收该页面，不影响另一条仍有 Pong 的首页访问凭据页面；最后一个正常页面关闭后 activePages 归零，管理员手动 Ping API 返回 409。
+- [CI 38188177991](https://github.com/CiBeDerORG/Navloom/actions/runs/38188177991) **4/4 通过**：真实 Node Server 与两台 Go 被动 Agent 的 Linux 隔离集成脚本增加读取 `/proc/net/tcp`/`tcp6` 的 ESTABLISHED 连接计数。验证初始 0 页面两 Agent 没有已建立 TCP 连接、单个首页页面建立连接、加开管理员页面**不重复建立**、撤销 Agent A 后仅 A 的连接消失、关闭管理员后首页仍保持 B 连接、最后首页关闭后 B 的 TCP 连接也消失且空闲期间无自动重连、重新打开普通导航页后 B 可建立连接、再次关闭归零。检查的是**实际内核 TCP 状态而非 API 的 paused 文本标签**。
+- 生产默认仍为每 15 秒浏览器存在性 sweep、无 Pong 超过 45 秒回收；Agent Pong 超时 10 秒；未新增第二套 Agent 心跳。**TCP ESTABLISHED 数归零不能取代真实 NAS 环境的网络抓包/所有协议零包结论。**Web 浏览器跨端交互、实网网络抓包、证书轮换及 Codex 独立验收仍待执行；T-036～T-047 不提前勾选。
