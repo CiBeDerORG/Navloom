@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"log/slog"
 	"math/big"
@@ -278,5 +279,104 @@ func TestPassiveTLSRejectsCertificateWithWrongPurpose(t *testing.T) {
 	}
 	if _, err := passiveTLSConfig(cfg, identity); err == nil {
 		t.Fatal("non-signing TLS certificate was accepted")
+	}
+}
+
+func TestPassiveAgentRejectsReplayedTasksAndMessages(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		replayTaskID   bool
+		replayMessageID bool
+	}{
+		{name: "same task ID with new message ID", replayTaskID: true},
+		{name: "same message ID with new task ID", replayMessageID: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfg := config.Config{
+				ServerURL: "wss://navloom.example.com",
+				AgentName: "nas",
+				EndpointHost: "10.10.20.30",
+				EndpointPort: 9443,
+				TLSCertFile: filepath.Join(dir, "agent.crt"),
+				TLSKeyFile: filepath.Join(dir, "agent.key"),
+			}
+			if err := pairing.GenerateAgentTLS(cfg); err != nil {
+				t.Fatal(err)
+			}
+			client, pemClient := clientTLSCert(t)
+			identity := pairing.Identity{AgentID: testAgentID, Credential: testCredential, ServerClientCertificatePEM: pemClient}
+			tlsConfig, err := passiveTLSConfig(cfg, identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			server := httptest.NewUnstartedServer(passiveHandler(ctx, identity, "m2-replay", slog.New(slog.NewTextHandler(io.Discard, nil))))
+			server.TLS = tlsConfig
+			server.StartTLS()
+			defer server.Close()
+			certPEM, err := os.ReadFile(cfg.TLSCertFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			roots := x509.NewCertPool()
+			if !roots.AppendCertsFromPEM(certPEM) {
+				t.Fatal("unable to trust Agent certificate")
+			}
+			dialer := websocket.Dialer{TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS13, RootCAs: roots,
+				ServerName: cfg.EndpointHost, Certificates: []tls.Certificate{client},
+			}}
+			headers := http.Header{}
+			headers.Set("X-Navloom-Agent-Id", testAgentID)
+			headers.Set("X-Navloom-Protocol-Version", "2")
+			conn, _, err := dialer.Dial(strings.Replace(server.URL, "https://", "wss://", 1)+"/agent", headers)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			var hello protocol.Message
+			if err := conn.ReadJSON(&hello); err != nil || hello.Type != "hello" {
+				t.Fatalf("Agent hello rejected: %v", err)
+			}
+			first := map[string]any{
+				"protocol_version": protocol.Version,
+				"message_id": "a57be91b-cbf5-4c84-93cb-b07c126bb18a",
+				"agent_id": testAgentID,
+				"task_id": "de57a2f3-38da-4cb7-a676-81b3950b9701",
+				"sent_at": time.Now().UTC().Format(time.RFC3339),
+				"type": "task_dispatch",
+				"payload": map[string]any{"operation": "capability_probe", "arguments": map[string]any{}},
+			}
+			if err := conn.WriteJSON(first); err != nil {
+				t.Fatal(err)
+			}
+			var result protocol.Message
+			if err := conn.ReadJSON(&result); err != nil || result.Type != "task_result" || result.TaskID != first["task_id"] {
+				t.Fatalf("initial read-only task must complete: %v, %v", result.Type, err)
+			}
+			second := make(map[string]any, len(first))
+			for key, value := range first {
+				second[key] = value
+			}
+			if tc.replayTaskID {
+				second["message_id"] = "2cd038e6-54aa-4e2b-8f16-b1e4cf30b1aa"
+			}
+			if tc.replayMessageID {
+				second["task_id"] = "2cd038e6-54aa-4e2b-8f16-b1e4cf30b1aa"
+			}
+			if err := conn.WriteJSON(second); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = conn.ReadMessage()
+			var closeErr *websocket.CloseError
+			if !errors.As(err, &closeErr) || closeErr.Code != websocket.ClosePolicyViolation {
+				t.Fatalf("replayed task must close WSS with policy violation, got %v", err)
+			}
+		})
 	}
 }
