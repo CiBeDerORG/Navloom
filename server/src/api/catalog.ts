@@ -5,7 +5,9 @@ import { preflightInstall } from "../install/preflight.js";
 import { z } from "zod";
 import { ApiFailure, type Access } from "../security/access.js";
 import { listTemplateSummaries, loadBuiltinCatalog } from "../catalog/registry.js";
-import { renderTrustedCompose } from "../catalog/template.js";
+import { renderTrustedCompose, validateTemplateParameters } from "../catalog/template.js";
+import { InstallTaskStore, InstallStateError } from "../install/tasks.js";
+import { parseInstallEncryptionKey } from "../install/secrets.js";
 
 /**
  * v1 catalog is read-only and ships with Navloom. It never downloads or
@@ -32,6 +34,58 @@ export function registerCatalog(app: FastifyInstance, access: Access, db: Databa
       parameters: input.data.parameters,
       navigation: input.data.navigation,
     });
+  });
+
+  app.post("/api/v1/admin/install/prepared-tasks", async (request, reply) => {
+    access.requireAdmin(request);
+    const input = z.object({
+      agentId: z.string().uuid(),
+      templateId: z.string().regex(/^[a-z][a-z0-9-]{1,47}$/),
+      templateVersion: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+$/),
+      parameters: z.record(z.unknown()),
+      navigation: z.unknown(),
+      idempotencyKey: z.string().uuid(),
+    }).strict().safeParse(request.body);
+    if (!input.success) throw new ApiFailure(400, "INVALID_INPUT", "安装草稿参数无效");
+    const template = catalog.get(input.data.templateId);
+    if (!template || template.version !== input.data.templateVersion) {
+      throw new ApiFailure(409, "TEMPLATE_VERSION_MISMATCH", "模板版本已变更，请重新确认");
+    }
+    // Authentication, capabilities, inventory freshness and URL readiness
+    // must all be revalidated server-side on this exact request.
+    const checked = preflightInstall(db, (id) => hub.isOnline(id), {
+      agentId: input.data.agentId, template,
+      parameters: input.data.parameters, navigation: input.data.navigation,
+    });
+    if (!checked.ready) {
+      throw new ApiFailure(409, "NAVIGATION_DRAFT_INCOMPLETE", "请先填写浏览器可访问的导航 URL");
+    }
+    let key: Buffer;
+    try {
+      key = parseInstallEncryptionKey(process.env.NAVLOOM_INSTALL_KEY);
+    } catch {
+      throw new ApiFailure(503, "INSTALL_VAULT_UNCONFIGURED",
+        "安装草稿加密密钥尚未配置，不能保存敏感参数");
+    }
+    try {
+      const values = validateTemplateParameters(template, input.data.parameters);
+      const result = new InstallTaskStore(db).reservePrepared({
+        agentId: input.data.agentId,
+        templateId: template.id, templateVersion: template.version,
+        idempotencyKey: input.data.idempotencyKey,
+        parameters: values, navigation: checked.navigation,
+      }, key);
+      reply.code(result.created ? 201 : 200);
+      return { taskId: result.id, status: result.status, created: result.created,
+        dispatched: false, message: "安装草稿已安全保存；尚未执行 Docker Compose" };
+    } catch (cause) {
+      if (cause instanceof InstallStateError) {
+        throw new ApiFailure(409, "INSTALL_KEY_CONFLICT", "安装任务幂等键冲突或目标设备已失效");
+      }
+      throw cause;
+    } finally {
+      key.fill(0);
+    }
   });
 
   app.get("/api/v1/admin/catalog/templates", async (request) => {
