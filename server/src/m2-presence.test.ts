@@ -259,10 +259,10 @@ test("T-040/T-041/T-054: zero pages preserves the last Agent result and labels i
     return result.json().agent as { status: string; lastSeenAt: number; connectedAt: number | null };
   };
   assert.equal((await getSettings()).json().activePages, 0);
-  assert.deepEqual(await details(), {
-    ...(await details()),
-    status: "paused", lastSeenAt: lastSeen, connectedAt: null,
-  });
+  const initial = await details();
+  assert.equal(initial.status, "paused");
+  assert.equal(initial.lastSeenAt, lastSeen);
+  assert.equal(initial.connectedAt, null);
 
   // A home-only tab counts as a logged-in page. Without an mTLS Server
   // identity the dialer must fail closed rather than fabricate a connection.
