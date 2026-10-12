@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -86,6 +87,14 @@ func controlContainerAt(ctx context.Context, socket, operation, containerID stri
 	return nil
 }
 
+var secretAssignment = regexp.MustCompile(`(?i)\b(password|passwd|token|secret|api[_-]?key|authorization)\b\s*[:=]\s*[^\s,;]+`)
+var bearerToken = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~-]+`)
+
+func sanitizeLogLine(line string) string {
+	line = bearerToken.ReplaceAllString(line, "Bearer [REDACTED]")
+	return secretAssignment.ReplaceAllString(line, "$1=[REDACTED]")
+}
+
 // ReadContainerLogs returns a bounded, read-only snapshot. This API never
 // follows logs indefinitely and never allows arbitrary Docker URL parameters.
 func ReadContainerLogs(ctx context.Context, containerID string) ([]string, error) {
@@ -152,7 +161,7 @@ func readContainerLogsAt(ctx context.Context, socket, containerID string) ([]str
 		if len(line) > 512 {
 			line = strings.ToValidUTF8(line[:512], "")
 		}
-		lines = append(lines, line)
+		lines = append(lines, sanitizeLogLine(line))
 		if len(lines) == 100 {
 			break
 		}
