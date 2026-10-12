@@ -172,10 +172,36 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 			_ = conn.Close()
 		})
 		defer cancelClose()
+		var sendMu sync.Mutex
+		send := func(message protocol.Message) error {
+			sendMu.Lock()
+			defer sendMu.Unlock()
+			return writeMessage(conn, message)
+		}
 		hello, err := protocol.NewHello(identity.AgentID, version)
-		if err != nil || writeMessage(conn, hello) != nil {
+		if err != nil || send(hello) != nil {
 			return
 		}
+		watchCtx, stopWatching := context.WithCancel(ctx)
+		defer stopWatching()
+		go func() {
+			for watchCtx.Err() == nil {
+				_ = probe.WatchDockerEvents(watchCtx, func() {
+					event, err := protocol.NewInventoryChanged(identity.AgentID)
+					if err != nil || send(event) != nil {
+						stopWatching()
+					}
+				})
+				if watchCtx.Err() != nil {
+					return
+				}
+				select {
+				case <-watchCtx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
+			}
+		}()
 		log.Info("Server connected to passive Agent", "agent_id", identity.AgentID)
 		// Prevent replay inside one authenticated WSS session, including when a
 		// fresh message_id is paired with a task_id that already ran. The ledger
@@ -214,7 +240,7 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 			case "capability_probe":
 				capabilities := probe.DiscoverDocker(ctx)
 				result, err := protocol.NewCapabilityResult(identity.AgentID, task.TaskID, capabilities)
-				if err != nil || writeMessage(conn, result) != nil {
+				if err != nil || send(result) != nil {
 					return
 				}
 			case "inventory_refresh":
@@ -233,7 +259,7 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 						end = len(items)
 					}
 					chunk, err := protocol.NewInventoryChunk(identity.AgentID, task.TaskID, chunks, items[offset:end])
-					if err != nil || writeMessage(conn, chunk) != nil {
+					if err != nil || send(chunk) != nil {
 						return
 					}
 					chunks++
