@@ -272,9 +272,13 @@ func NewInventoryChanged(agentID string) (Message, error) {
 }
 
 func containerID(value string) bool {
-	if len(value) < 12 || len(value) > 64 { return false }
+	if len(value) < 12 || len(value) > 64 {
+		return false
+	}
 	for _, char := range value {
-		if char < '0' || char > '9' && char < 'a' || char > 'f' { return false }
+		if char < '0' || char > '9' && char < 'a' || char > 'f' {
+			return false
+		}
 	}
 	return true
 }
@@ -286,21 +290,32 @@ func TaskContainerID(msg Message) string {
 			ContainerID string `json:"container_id"`
 		} `json:"arguments"`
 	}
-	if json.Unmarshal(msg.Payload, &payload) != nil { return "" }
+	if json.Unmarshal(msg.Payload, &payload) != nil {
+		return ""
+	}
 	return payload.Arguments.ContainerID
 }
 
 func NewOperationResult(agentID, taskID string, success bool) (Message, error) {
-	if !uuidPattern.MatchString(taskID) { return Message{}, errors.New("invalid task ID") }
+	if !uuidPattern.MatchString(taskID) {
+		return Message{}, errors.New("invalid task ID")
+	}
 	msg, err := newEnvelope(agentID)
-	if err != nil { return Message{}, err }
+	if err != nil {
+		return Message{}, err
+	}
 	var code *int
-	if !success { failed := 1; code = &failed }
+	if !success {
+		failed := 1
+		code = &failed
+	}
 	payload, err := json.Marshal(struct {
-		Success bool `json:"success"`
+		Success  bool `json:"success"`
 		ExitCode *int `json:"exit_code"`
-	}{Success:success, ExitCode:code})
-	if err != nil { return Message{}, err }
+	}{Success: success, ExitCode: code})
+	if err != nil {
+		return Message{}, err
+	}
 	msg.Type, msg.TaskID, msg.Payload = "task_result", taskID, payload
 	return msg, nil
 }
@@ -310,12 +325,16 @@ func NewTaskLog(agentID, taskID string, sequence int, line string) (Message, err
 		return Message{}, errors.New("invalid log entry")
 	}
 	msg, err := newEnvelope(agentID)
-	if err != nil { return Message{}, err }
+	if err != nil {
+		return Message{}, err
+	}
 	payload, err := json.Marshal(struct {
-		Sequence int `json:"sequence"`
-		Line string `json:"line"`
-	}{Sequence:sequence, Line:line})
-	if err != nil { return Message{}, err }
+		Sequence int    `json:"sequence"`
+		Line     string `json:"line"`
+	}{Sequence: sequence, Line: line})
+	if err != nil {
+		return Message{}, err
+	}
 	msg.Type, msg.TaskID, msg.Payload = "task_log", taskID, payload
 	return msg, nil
 }
