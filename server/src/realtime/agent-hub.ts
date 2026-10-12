@@ -26,10 +26,12 @@ export class AgentHub {
   private readonly sessions = new Map<string, Session>();
   private readonly sweep: ReturnType<typeof setInterval>;
   private readonly helloTimeoutMs: number;
+  private readonly pongTimeoutMs: number;
   readonly tasks: AgentTasks;
 
-  constructor(private readonly db: DatabaseConnection, options: { sweepIntervalMs: number; taskTimeoutMs?: number; helloTimeoutMs?: number }) {
+  constructor(private readonly db: DatabaseConnection, options: { sweepIntervalMs: number; taskTimeoutMs?: number; helloTimeoutMs?: number; pongTimeoutMs?: number }) {
     this.helloTimeoutMs = options.helloTimeoutMs ?? 8_000;
+    this.pongTimeoutMs = options.pongTimeoutMs ?? 10_000;
     this.tasks = new AgentTasks(db, options.taskTimeoutMs);
     this.sweep = setInterval(() => this.expire(), options.sweepIntervalMs);
     this.sweep.unref();
@@ -75,7 +77,7 @@ export class AgentHub {
           if (this.sessions.get(session.agentId) === session) {
             this.disconnect(session.agentId, 4000, "Pong timeout");
           }
-        }, 10_000);
+        }, this.pongTimeoutMs);
         session.pendingProbe.unref();
       } catch {
         this.disconnect(session.agentId, 4000, "Ping failed");
