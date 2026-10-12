@@ -44,3 +44,18 @@
 - Docker Compose up 的退出码 0 代表部署成功，非 0 代表失败；丢失连接时标 unknown，绝不依据 HTTP/健康检查改判，也不把 unknown 重新设为 pending。
 - server/src/m3-install-state.test.ts 在隔离 SQLite 文件上关闭并重新打开 Server DB，验证 idempotency、唯一任务、跨重启状态、未知任务迟到结果、错误终态重放与非法转移。
 - **严格限制**：该模块目前没有管理员安装 POST API、秘密参数落库/加密、Agent 真 Compose 执行或成功自动生成导航，不能将内部状态机视为 T-071～T-088 完整实现，正式勾选仍为 0。
+
+
+## 2026-10-12 第二轮：真实 Agent 预检、导航草稿与加密待部署任务
+
+**T-068 安全基础**：server/src/install/secrets.ts 使用外部 NAVLOOM_INSTALL_KEY（32 字节随机 base64url 密钥）进行 AES-256-GCM 加密，每次使用随机 nonce，并把 taskId、agentId、模板 ID 与版本作为认证附加数据。密文被篡改、错任务、错 Agent、错密钥、密钥缺失均安全拒绝。密钥没有静态默认值。加密密钥轮换/备份、真实 Agent 安全传输和日志审计仍待完善，不能据此完成整个 T-068。
+
+**T-069 可编辑导航草稿**：模板管理表单已允许修改标题、实际浏览器 URL、图标、说明、分组、打开方式。不擅自推测 EasyTier IP/端口为浏览器可访问的导航 URL；URL 为空时预检提醒。只有管理员明确选择安全保存草稿才落库；不自动创建导航卡片。
+
+**T-072 预检**：POST /api/v1/admin/install/preflight 仅管理员可用，要求准确模板版本、Agent 当前认证在线、CPU 架构适配、Docker/Compose 能力未过期、容器快照未过期、参数合法、无明显端口冲突、导航草稿有效；只回安全资源元数据、ready 和警告，决不回传密码/环境变量值。端口预检属于 best-effort，不保证无并发冲突；Agent 离线直接拒绝。
+
+**T-071/T-073 加密持久草稿**：新增 server/drizzle/0009_m3_install_task_inputs.sql 与 Drizzle schema。状态 prepared 的 install_tasks 与 install_task_inputs 在同一 SQLite 事务中保存，后者只存 AES-GCM 参数密文与外部密钥 HMAC 计算的全请求摘要。相同幂等键/完全相同请求复用原 ID；复用幂等键同时更改密码、目标 Agent 或导航信息会被拒绝。状态 prepared 不允许自动转换成 running，**不会调用 Docker Compose，也没有后台派发器**。接口 POST /api/v1/admin/install/prepared-tasks 需管理员显式提交、预检全部就绪和有效外部加密密钥；GET /api/v1/admin/install/prepared-tasks 只返回不含明文、密文、哈希的草稿元数据；首页 Cookie 无权访问。Web 中的按钮明确写明仅加密保存、未部署。
+
+**回归证据**：m3-secrets.test.ts、m3-preflight.test.ts、m3-prepared-tasks.test.ts 验证错误身份/篡改、持久化/重启、重复键及危险输入；scripts/smoke-m2-reverse.mjs 使用隔离 GitHub Runner 中两个真实 Go Agent、Node Server、SQLite 和临时真实 Docker，对在线预检、安全保存、秘密不反射、幂等键冲突、零 Docker 副作用作了端到端回归。正式 CI 结果只认 GitHub Actions 状态 completed/success，未跑或失败须补修。
+
+**仍待完成**：T-074/T-075 的安全任务派发与恢复，T-076～T-082 的受限 Go Compose 执行器、文件权限/日志/重连对账，T-083～T-088 的受管实例与自动导航幂等事务、最终实机验收。真实 NAS 或外部 CiBeDerORG/deploy 依旧没有被操作；如需改 deploy 必须先建独立分支。
