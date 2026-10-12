@@ -105,7 +105,7 @@ jobs:
         run: go test ./...
       - name: Docker event and Agent WSS race detection
         working-directory: agent
-        run: go test -race ./internal/probe ./internal/transport
+        run: go test -race ./internal/probe ./internal/transport ./internal/deploy
       - name: Build Linux amd64 and arm64
         working-directory: agent
         run: ./scripts/build-linux.sh
