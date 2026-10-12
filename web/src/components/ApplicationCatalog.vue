@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import {
-  getApplicationCatalog, getApplicationTemplate, previewApplicationTemplate,
+  getApplicationCatalog, getApplicationTemplate, previewApplicationTemplate, preflightApplicationInstall, getAdminNavigation,
   type AgentDevice, type CatalogPreview, type CatalogTemplateDetail, type CatalogTemplateSummary,
+  type NavigationDraft, type NavigationGroup, type InstallationPreflight,
 } from "../lib/api";
 
 const props = defineProps<{ agents: AgentDevice[] }>();
@@ -12,6 +13,9 @@ const selected = ref<CatalogTemplateDetail | null>(null);
 const agentId = ref("");
 const parameters = ref<Record<string, string | number | boolean>>({});
 const preview = ref<CatalogPreview | null>(null);
+const installPreflight = ref<InstallationPreflight | null>(null);
+const navigation = ref<NavigationDraft>({ title: "", url: "", icon: null, description: null, groupId: null, openTarget: "_blank" });
+const groups = ref<NavigationGroup[]>([]);
 const loading = ref(true);
 const busy = ref(false);
 const error = ref("");
@@ -28,6 +32,7 @@ async function loadCatalog() {
   error.value = "";
   try {
     catalog.value = (await getApplicationCatalog()).templates;
+    groups.value = (await getAdminNavigation()).groups;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "无法读取应用模板目录";
   } finally {
@@ -45,11 +50,19 @@ async function selectTemplate(id: string) {
   busy.value = true;
   error.value = "";
   preview.value = null;
+  installPreflight.value = null;
   approved.value = false;
   parameters.value = {};
   try {
     const response = await getApplicationTemplate(id);
     selected.value = response.template;
+    navigation.value = {
+      title: response.template.navigation.title,
+      url: response.template.navigation.url ?? "",
+      icon: response.template.navigation.icon ?? response.template.icon ?? null,
+      description: response.template.description.slice(0, 500) || null,
+      groupId: null, openTarget: "_blank",
+    };
     for (const [key, field] of Object.entries(response.template.parameters.properties)) {
       if (field.default !== undefined) parameters.value[key] = field.default;
       else if (field.type === "boolean") parameters.value[key] = false;
@@ -62,10 +75,12 @@ async function selectTemplate(id: string) {
   }
 }
 watch(parameters, () => {
+  installPreflight.value = null;
   preview.value = null;
   approved.value = false;
 }, { deep: true });
-watch(agentId, () => { preview.value = null; approved.value = false; });
+watch(agentId, () => { preview.value = null; installPreflight.value = null; approved.value = false; });
+watch(navigation, () => { installPreflight.value = null; approved.value = false; }, { deep: true });
 
 onMounted(() => { void loadCatalog(); });
 
@@ -95,6 +110,11 @@ async function validatePreview() {
   busy.value = true;
   try {
     preview.value = await previewApplicationTemplate(selected.value.id, parameters.value);
+    installPreflight.value = await preflightApplicationInstall({
+      agentId: agentId.value, templateId: selected.value.id,
+      templateVersion: selected.value.version, parameters: parameters.value,
+      navigation: navigation.value,
+    });
     approved.value = true;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "参数验证失败";
@@ -177,6 +197,44 @@ async function validatePreview() {
             class="mt-2 w-full rounded-lg border border-white/20 bg-slate-950 px-3 py-2 text-sm"
             @input="setValue(key, ($event.target as HTMLInputElement).value, field.type)" />
         </div>
+        <fieldset class="space-y-3 rounded-lg border border-white/10 p-4">
+          <legend class="px-1 text-sm font-semibold">部署成功后自动创建的导航卡片（可编辑草稿）</legend>
+          <p class="text-xs text-slate-400">不会根据 EasyTier IP 或本机端口推断你的浏览器访问地址。此处仅编辑草稿，尚未保存导航卡片。</p>
+          <div>
+            <label for="catalog-nav-title" class="block text-sm">卡片名称</label>
+            <input id="catalog-nav-title" v-model="navigation.title" maxlength="100" required
+              class="mt-1 w-full rounded-lg border border-white/20 bg-slate-950 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label for="catalog-nav-url" class="block text-sm">实际访问 URL</label>
+            <input id="catalog-nav-url" v-model="navigation.url" type="url" placeholder="https://你的实际访问域名或地址"
+              maxlength="2048" class="mt-1 w-full rounded-lg border border-white/20 bg-slate-950 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label for="catalog-nav-icon" class="block text-sm">图标</label>
+            <input id="catalog-nav-icon" v-model="navigation.icon" maxlength="512" placeholder="图标 Emoji 或 https:// 图片地址"
+              class="mt-1 w-full rounded-lg border border-white/20 bg-slate-950 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label for="catalog-nav-description" class="block text-sm">卡片说明</label>
+            <input id="catalog-nav-description" v-model="navigation.description" maxlength="500"
+              class="mt-1 w-full rounded-lg border border-white/20 bg-slate-950 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label for="catalog-nav-group" class="block text-sm">导航分组</label>
+            <select id="catalog-nav-group" v-model="navigation.groupId"
+              class="mt-1 w-full rounded-lg border border-white/20 bg-slate-950 px-3 py-2 text-sm">
+              <option :value="null">未分组</option>
+              <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</option>
+            </select>
+          </div>
+          <label class="flex items-center gap-2 text-sm">
+            <input v-model="navigation.openTarget" type="radio" value="_blank" /> 新标签页打开
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input v-model="navigation.openTarget" type="radio" value="_self" /> 当前标签页打开
+          </label>
+        </fieldset>
         <button type="submit" :disabled="busy || !agentId"
           class="rounded-lg bg-sky-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
           {{ busy ? "验证中…" : "验证参数并预览" }}
@@ -189,6 +247,12 @@ async function validatePreview() {
           <li v-for="service in preview.services" :key="service.name">
             {{ service.name }} · {{ service.image }} · {{ service.ports.join(", ") || "无发布端口" }}
           </li>
+        </ul>
+        <p v-if="installPreflight" class="mt-3" :class="installPreflight.ready ? 'text-emerald-300' : 'text-amber-300'">
+          {{ installPreflight.ready ? "目标 Agent 与参数初步预检通过；尚未创建安装任务。" : "仍有安装前事项需要处理：" }}
+        </p>
+        <ul v-if="installPreflight" class="mt-2 list-inside list-disc text-amber-300">
+          <li v-for="warning in installPreflight.warnings" :key="warning">{{ warning }}</li>
         </ul>
         <p class="mt-3 text-amber-300">当前只是安全预览，尚未创建安装任务、写入服务器或启动任何 Docker 容器。正式安装功能将在 M3 后续任务开放。</p>
       </div>
