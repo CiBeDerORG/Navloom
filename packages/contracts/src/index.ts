@@ -107,7 +107,11 @@ export const AgentMessageSchema = z.discriminatedUnion("type", [
   z.object({
     ...envelope,
     type: z.literal("inventory_changed"),
-    payload: z.object({ resource: z.literal("containers") }).strict(),
+    payload: z.object({
+      resource: z.literal("containers"),
+      container_id: z.string().regex(/^[a-f0-9]{12,64}$/),
+      action: z.enum(["create", "start", "stop", "die", "destroy", "rename", "pause", "unpause", "restart", "update"]),
+    }).strict(),
   }).strict(),
   z.object({
     ...envelope,
