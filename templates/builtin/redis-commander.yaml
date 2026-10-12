@@ -1,0 +1,52 @@
+apiVersion: navloom/v1
+id: redis-commander
+version: 1.0.0
+title: Redis + Web 控制台
+description: 双服务 Compose 示例，部署 Redis 与 Web 控制台。Web 端口仅绑定回环地址。
+category: 开发工具
+icon: "🗄️"
+architectures: [amd64, arm64]
+parameters:
+  type: object
+  additionalProperties: false
+  required: [web_port, redis_password]
+  properties:
+    web_port:
+      type: integer
+      title: Web 管理端口
+      default: 18081
+      minimum: 1024
+      maximum: 65535
+      format: port
+    redis_password:
+      type: string
+      title: Redis 访问密码
+      secret: true
+      minLength: 12
+      maxLength: 128
+    timezone:
+      type: string
+      title: 时区
+      default: Asia/Shanghai
+      enum: [Asia/Shanghai, Asia/Tokyo, UTC]
+compose:
+  services:
+    - name: redis
+      image: redis:7.4.5-alpine
+      environment:
+        REDIS_PASSWORD:
+          parameter: redis_password
+      volumes:
+        - name: redis_data
+          target: /data
+    - name: console
+      image: rediscommander/redis-commander:0.8.0
+      ports:
+        - container: 8081
+          hostParameter: web_port
+      environment:
+        REDIS_HOSTS:
+          parameter: timezone
+navigation:
+  title: Redis 控制台
+  icon: "🗄️"
