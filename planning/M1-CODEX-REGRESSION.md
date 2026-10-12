@@ -396,3 +396,5 @@ npm run db:migrate
 **反向 WSS v2 清理与双 Agent CI（2026-10-12，非 Codex PASS）**：[CI 38159332832](https://github.com/CiBeDerORG/Navloom/actions/runs/38159332832) 四项均通过；旧 Agent 主动 WSS、Server `/agent` 入站及 JSON heartbeat 均已删除。隔离环境中的两台真实 Go 被动 Agent 与 Node Server 验证了首页单页连接、多页面共享、手动 Ping、A/B 任务隔离、单 Agent 重启、撤销后禁连与零页面状态冻结。**E1～E3 仍须 Codex 独立执行异常浏览器关闭、包级零通信、证书拒绝、真实 NAS 安全验证；T-036～T-059 均维持 `NOT_RUN`，不得凭 CI 直接勾选。**
 
 **T-036/T-041/T-042 代码及独立回归前置（2026-10-12，NOT_RUN）**：Server 新配对必填私网端点和有效 TLS 服务端证书，Go 配对也在缺少端点时拒绝。管理员 Agent 列表/详情新增证书配置状态、WSS IP/端口、v2 hello、连接起始时间、最近 WSS Pong；没有 hello 在 8 秒后断开。须独立检查未登录或只有首页 Cookie 无权读取设备详情；证书私钥/设备凭据不可出现在列表；Pong 不写 SQLite；浏览器最后离开后页面不再引起 Agent 连接。CI 单测不能替代真实环境 PASS，E 组保持 `NOT_RUN`。
+
+**E1 追加自动化证据（2026-10-12；非 Codex PASS）**：[CI 38186457634](https://github.com/CiBeDerORG/Navloom/actions/runs/38186457634) 4/4 作业通过。`server/src/m2-presence.test.ts` 增补了：首页口令撤销只回收对应普通导航页面、独立管理员页面继续在线、管理员会话注销最终归零、浏览器无 WS Close 握手断开回收、零页面手动 Ping 被拒绝；`AdminShell` 全局共享 Agent 探测控件使导航管理/实例管理/设置页面均可修改同一持久化配置，不创建第二条 Agent WSS。生产浏览器保活时限未缩短。**这些并非真实浏览器跨终端演练、Pong 半开连接计时、零 Agent 网络抓包或 Codex 独立验收，E1 T-040～T-042 保持 NOT_RUN。**
