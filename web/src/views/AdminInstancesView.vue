@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import AdminShell from "../components/AdminShell.vue";
+import ContainerPool from "../components/ContainerPool.vue";
 import {
   getAgents, issueAgentPairToken, renameAgent, revokeAgent, requestAgentCapabilityProbe,
   type AgentDevice,
@@ -226,9 +227,6 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section class="rounded-2xl border border-dashed border-white/20 p-5 text-sm text-slate-400">
-      <h2 class="font-semibold text-slate-200">容器池与应用实例</h2>
-      <p class="mt-2">等待后续 M2 Docker 容器发现和实例查询。设备在线不代表 Docker 已可操作；容器不会自动创建导航卡片。</p>
-    </section>
+    <ContainerPool />
   </AdminShell>
 </template>
