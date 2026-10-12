@@ -207,7 +207,7 @@ test("T-050: event arriving during a full scan schedules another reconciliation"
   receive("hello", { version: "m2-inventory-race" });
   assert.equal(refreshes().length, 1, "hello starts a full scan while a page is online");
   const staleTask = refreshes()[0]!.task_id;
-  receive("inventory_changed", { container_id: "a".repeat(64), action: "start" });
+  receive("inventory_changed", { resource: "containers", container_id: "a".repeat(64), action: "start" });
 
   await new Promise((done) => setTimeout(done, 1150));
   assert.equal(refreshes().length, 1, "a second refresh must wait for the in-flight scan");
@@ -225,7 +225,7 @@ test("T-050: event arriving during a full scan schedules another reconciliation"
   hub.disconnect(agentId, 1001, "last browser left");
   assert.equal(hub.tasks.getTask(refreshes()[1]!.task_id)?.status, "unknown",
     "a page closing during a scan leaves an unknown result, not a failed task");
-  receive("inventory_changed", { container_id: "b".repeat(64), action: "stop" });
+  receive("inventory_changed", { resource: "containers", container_id: "b".repeat(64), action: "stop" });
   await new Promise((done) => setTimeout(done, 1100));
   assert.equal(refreshes().length, 2, "zero-page mode must not dispatch any further Docker task");
 });
