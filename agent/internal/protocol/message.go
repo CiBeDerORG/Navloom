@@ -251,3 +251,13 @@ func NewTaskFailure(agentID, taskID string, detail string) (Message, error) {
 	msg.Type, msg.TaskID, msg.Payload = "task_result", taskID, payload
 	return msg, nil
 }
+
+func NewInventoryChanged(agentID string) (Message, error) {
+	msg, err := newEnvelope(agentID)
+	if err != nil {
+		return Message{}, err
+	}
+	msg.Type = "inventory_changed"
+	msg.Payload = json.RawMessage(`{"resource":"containers"}`)
+	return msg, nil
+}
