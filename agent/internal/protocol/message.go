@@ -126,12 +126,12 @@ func DecodeTaskDispatch(data []byte, expectedAgentID string) (Message, error) {
 	if err := strictJSON(msg.Payload, &payload); err != nil {
 		return msg, errors.New("invalid task payload")
 	}
-	if payload.Operation != "capability_probe" {
+	if payload.Operation != "capability_probe" && payload.Operation != "inventory_refresh" {
 		return msg, errors.New("operation not enabled")
 	}
 	var args struct{}
 	if err := strictJSON(payload.Arguments, &args); err != nil {
-		return msg, errors.New("capability probe takes no arguments")
+		return msg, errors.New("read-only task takes no arguments")
 	}
 	return msg, nil
 }
@@ -155,5 +155,83 @@ func NewCapabilityResult(agentID, taskID string, capabilities Capabilities) (Mes
 	msg.Type = "task_result"
 	msg.TaskID = taskID
 	msg.Payload = payload
+	return msg, nil
+}
+
+type ContainerPort struct {
+	PrivatePort int     `json:"private_port"`
+	PublicPort  *int    `json:"public_port"`
+	Protocol    string  `json:"protocol"`
+	IP          *string `json:"ip"`
+}
+
+type ContainerRecord struct {
+	ContainerID    string            `json:"container_id"`
+	Name           string            `json:"name"`
+	Image          string            `json:"image"`
+	State          string            `json:"state"`
+	Ports          []ContainerPort   `json:"ports"`
+	Labels         map[string]string `json:"labels"`
+	ComposeProject *string           `json:"compose_project"`
+	ComposeService *string           `json:"compose_service"`
+}
+
+// TaskOperation is invoked only after the strict envelope and allowlist validate.
+func TaskOperation(msg Message) string {
+	var payload taskDispatchPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return ""
+	}
+	return payload.Operation
+}
+
+func NewInventoryChunk(agentID, taskID string, sequence int, records []ContainerRecord) (Message, error) {
+	if !uuidPattern.MatchString(taskID) || sequence < 0 || sequence >= 100 || len(records) > 20 {
+		return Message{}, errors.New("invalid inventory chunk")
+	}
+	msg, err := newEnvelope(agentID)
+	if err != nil {
+		return Message{}, err
+	}
+	payload, err := json.Marshal(struct {
+		Sequence int               `json:"sequence"`
+		Records  []ContainerRecord `json:"containers"`
+	}{Sequence: sequence, Records: records})
+	if err != nil { return Message{}, err }
+	msg.Type, msg.TaskID, msg.Payload = "inventory_chunk", taskID, payload
+	return msg, nil
+}
+
+func NewInventoryResult(agentID, taskID string, count, chunks int) (Message, error) {
+	if !uuidPattern.MatchString(taskID) || count < 0 || count > 2000 || chunks < 0 || chunks > 100 {
+		return Message{}, errors.New("invalid inventory completion")
+	}
+	msg, err := newEnvelope(agentID)
+	if err != nil { return Message{}, err }
+	payload, err := json.Marshal(struct {
+		Success bool `json:"success"`
+		ExitCode *int `json:"exit_code"`
+		Count int `json:"inventory_count"`
+		Chunks int `json:"inventory_chunks"`
+	}{Success:true, Count:count, Chunks:chunks})
+	if err != nil { return Message{}, err }
+	msg.Type, msg.TaskID, msg.Payload = "task_result", taskID, payload
+	return msg, nil
+}
+
+func NewTaskFailure(agentID, taskID string, detail string) (Message, error) {
+	if !uuidPattern.MatchString(taskID) { return Message{}, errors.New("invalid task ID") }
+	msg, err := newEnvelope(agentID)
+	if err != nil { return Message{}, err }
+	if len(detail) > 200 { detail = detail[:200] }
+	if detail == "" { detail = "operation unavailable" }
+	code := 1
+	payload, err := json.Marshal(struct {
+		Success bool `json:"success"`
+		ExitCode *int `json:"exit_code"`
+		Error string `json:"error"`
+	}{Success:false, ExitCode:&code, Error:detail})
+	if err != nil { return Message{}, err }
+	msg.Type, msg.TaskID, msg.Payload = "task_result", taskID, payload
 	return msg, nil
 }
