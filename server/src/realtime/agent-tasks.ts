@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { DatabaseConnection } from "../db/client.js";
 import type { AgentCapabilities, AgentMessage } from "@navloom/contracts";
 import { AGENT_PROTOCOL_VERSION } from "@navloom/contracts";
@@ -53,7 +54,15 @@ export class AgentTasks {
   acceptResult(agentId: string, message: TaskResult): boolean {
     const row = this.db.sqlite.prepare(taskSelect + " WHERE id = ?").get(message.task_id) as TaskRow | undefined;
     if (!row || row.agentId !== agentId || row.operation !== "capability_probe") return false;
-    if (row.status === "succeeded" || row.status === "failed") return true; // idempotent late/duplicate result
+    // A revoked Agent must never report a delayed completion, even if its
+    // original task remains in the audit history.
+    const activeAgent = this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId);
+    if (!activeAgent) return false;
+    if (row.status === "succeeded" || row.status === "failed") {
+      // A genuinely identical delivery is idempotent. A conflicting result is
+      // a protocol violation and must not be silently acknowledged.
+      return row.resultJson !== null && isDeepStrictEqual(JSON.parse(row.resultJson), message.payload);
+    }
     if (row.status !== "sent" && row.status !== "unknown") return false;
     if (message.payload.success && !message.payload.capabilities) return false;
     if (!message.payload.success && message.payload.capabilities) return false;
