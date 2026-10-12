@@ -91,7 +91,10 @@ export const TemplateSchema = z.object({
   }).strict(),
   navigation: z.object({
     title: caption, icon: z.string().max(250).optional(),
-    url: z.string().url().max(2048).optional(),
+    url: z.string().url().max(2048).refine((input) => {
+      const url = new URL(input);
+      return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password;
+    }, "navigation URL must be HTTP(S) without credentials").optional(),
   }).strict(),
 }).strict().superRefine((template, ctx) => {
   const fields = template.parameters.properties;
@@ -191,12 +194,16 @@ export function renderTrustedCompose(template: CatalogTemplate, parameters: unkn
   if (name.length > 63) throw new Error("Compose project name exceeds 63 characters");
   const services: RenderedCompose["services"] = Object.create(null) as RenderedCompose["services"];
   const volumes: Record<string, Record<string, never>> = Object.create(null) as Record<string, Record<string, never>>;
+  const publishedPorts = new Set<string>();
   for (const entry of template.compose.services) {
     const out: RenderedCompose["services"][string] = { image: entry.image, restart: "unless-stopped" };
     if (entry.ports.length) {
       out.ports = entry.ports.map((port) => {
         const host = values[port.hostParameter];
         if (typeof host !== "number") throw new Error("Missing port parameter: " + port.hostParameter);
+        const binding = host + "/" + port.protocol;
+        if (publishedPorts.has(binding)) throw new Error("Conflicting host port in Compose template");
+        publishedPorts.add(binding);
         return "127.0.0.1:" + host + ":" + port.container + "/" + port.protocol;
       });
     }
