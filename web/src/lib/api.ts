@@ -132,3 +132,36 @@ export const updateAgentProbeSettings = (mode: "auto" | "manual", intervalMs: nu
   request<AgentProbeSettings>("/admin/agents/probe-settings", { method: "PATCH", body: payload({ mode, intervalMs }) });
 export const checkAgentConnections = () =>
   request<{ sent: number }>("/admin/agents/probe", { method: "POST", body: "{}" });
+
+export type ContainerPort = { private_port: number; public_port: number | null; protocol: "tcp" | "udp" | "sctp"; ip: string | null };
+export type PoolContainer = {
+  id: string; agentId: string; agentName: string; containerId: string; name: string;
+  image: string; state: string; ports: ContainerPort[]; labels: Record<string, string>;
+  composeProject: string | null; composeService: string | null; instanceId: string | null;
+  lastSeenAt: number; snapshotAt: number | null; historical: boolean; stale: boolean;
+};
+export type AgentInventoryState = {
+  agentId: string; name: string; revokedAt: number | null; updatedAt: number | null;
+  containerCount: number | null; taskId: string | null; online: boolean;
+  historical: boolean; stale: boolean;
+};
+export type DeployedAppInstance = {
+  id: string; agentId: string; agentName: string; templateId: string;
+  templateVersion: string; composeProject: string; createdAt: number; containerCount: number;
+};
+export const getContainerPool = (params: { agentId?: string; state?: string; search?: string; offset?: number; limit?: number } = {}) => {
+  const query = new URLSearchParams();
+  if (params.agentId) query.set("agentId", params.agentId);
+  if (params.state) query.set("state", params.state);
+  if (params.search) query.set("search", params.search);
+  query.set("limit", String(params.limit ?? 100));
+  query.set("offset", String(params.offset ?? 0));
+  return request<{ total: number; containers: PoolContainer[] }>("/admin/containers?" + query.toString());
+};
+export const getContainerDetails = (id: string) =>
+  request<{ container: PoolContainer }>("/admin/containers/" + encodeURIComponent(id));
+export const getAgentInventories = () => request<{ agents: AgentInventoryState[] }>("/admin/agent-inventory");
+export const refreshAgentInventory = (id: string) =>
+  request<{ taskId: string }>("/admin/agents/" + encodeURIComponent(id) + "/inventory-refresh", { method: "POST", body: "{}" });
+export const getDeployedAppInstances = () =>
+  request<{ instances: DeployedAppInstance[] }>("/admin/app-instances");
