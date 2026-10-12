@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { logoutAdmin } from "../lib/api";
+import AgentProbeControls from "./AgentProbeControls.vue";
 
 const router = useRouter();
 const logoutError = ref("");
@@ -32,6 +33,7 @@ async function logout() {
       </div>
     </header>
     <main class="mx-auto max-w-6xl space-y-6 px-5 py-10">
+      <AgentProbeControls />
       <p v-if="logoutError" role="alert" class="text-sm text-rose-300">{{ logoutError }}</p>
       <slot />
     </main>
