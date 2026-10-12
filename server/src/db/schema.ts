@@ -131,6 +131,7 @@ export const agentTasks = sqliteTable("agent_tasks", {
   operation: text("operation").notNull(),
   status: text("status").notNull(),
   argumentsJson: text("arguments_json").notNull(),
+  idempotencyKey: text("idempotency_key").unique(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   dispatchedAt: integer("dispatched_at", { mode: "timestamp_ms" }).notNull(),
   deadlineAt: integer("deadline_at", { mode: "timestamp_ms" }).notNull(),
@@ -155,3 +156,10 @@ export const agentInventorySnapshots = sqliteTable("agent_inventory_snapshots", 
   containerCount: integer("container_count").notNull(),
   taskId: text("task_id").notNull(),
 });
+
+export const agentTaskLogs = sqliteTable("agent_task_logs", {
+  taskId: text("task_id").notNull().references(() => agentTasks.id, { onDelete: "cascade" }),
+  sequence: integer("sequence").notNull(),
+  line: text("line").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [uniqueIndex("agent_task_logs_task_sequence_uq").on(table.taskId, table.sequence)]);
