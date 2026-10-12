@@ -64,6 +64,17 @@ export class AgentHub {
     return this.tasks.dispatchCapabilityProbe(agentId, session.socket);
   }
 
+  requestInventoryRefresh(agentId: string): string {
+    const session = this.sessions.get(agentId);
+    if (!session || !session.helloReceived || !this.isOnline(agentId)) {
+      throw new ApiFailure(409, "AGENT_OFFLINE", "设备尚未完成协议握手或未连接");
+    }
+    if (!this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId)) {
+      throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在或已撤销");
+    }
+    return this.tasks.dispatchInventoryRefresh(agentId, session.socket);
+  }
+
   /** Connectivity probes use only WSS Ping/Pong and never write heartbeat rows to SQLite. */
   probeReverseAll(): number {
     let sent = 0;
@@ -177,7 +188,7 @@ export class AgentHub {
     if (!parsed.success) { this.reject(session, 1008, "invalid protocol message"); return; }
     const message = parsed.data;
     if (message.agent_id !== session.agentId ||
-        !["hello", "task_result"].includes(message.type) ||
+        !["hello", "task_result", "inventory_chunk"].includes(message.type) ||
         (message.type === "hello" && session.helloReceived) ||
         (message.type !== "hello" && !session.helloReceived) ||
         session.seenMessages.has(message.message_id)) {
@@ -195,6 +206,12 @@ export class AgentHub {
       session.helloTimeout = null;
       this.touch(session, message.payload.version);
       // Capability tasks require a separate explicit administrator request.
+    } else if (message.type === "inventory_chunk") {
+      if (!this.tasks.acceptInventoryChunk(session.agentId, message)) {
+        this.reject(session, 1008, "inventory chunk rejected");
+        return;
+      }
+      this.touch(session);
     } else if (message.type === "task_result") {
       if (!this.tasks.acceptResult(session.agentId, message)) {
         this.reject(session, 1008, "task result rejected");
