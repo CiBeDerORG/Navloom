@@ -304,7 +304,7 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 				items, err := probe.ListContainers(ctx)
 				if err != nil {
 					result, failure := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "Docker inventory unavailable")
-					if failure != nil || writeMessage(conn, result) != nil {
+					if failure != nil || send(result) != nil {
 						return
 					}
 					continue
@@ -322,7 +322,7 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 					chunks++
 				}
 				result, err := protocol.NewInventoryResult(identity.AgentID, task.TaskID, len(items), chunks)
-				if err != nil || writeMessage(conn, result) != nil {
+				if err != nil || send(result) != nil {
 					return
 				}
 			default:
