@@ -8,6 +8,7 @@ import type { AgentHub } from "../realtime/agent-hub.js";
 const agentFilter = z.object({
   agentId: z.string().uuid().optional(),
   state: z.enum(["running", "exited", "paused", "restarting", "created", "dead", "unknown"]).optional(),
+  source: z.enum(["managed", "external"]).optional(),
   search: z.string().max(100).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
   offset: z.coerce.number().int().min(0).max(100000).default(0),
@@ -36,7 +37,8 @@ function view(row: InventoryRow, hub: AgentHub) {
     agentName: row.agentName, name: row.name, image: row.image, state: row.state,
     ports: JSON.parse(row.portsJson) as unknown, labels: JSON.parse(row.labelsJson) as unknown,
     composeProject: row.composeProject, composeService: row.composeService,
-    instanceId: row.instanceId, lastSeenAt: row.lastSeenAt, snapshotAt: row.snapshotAt,
+    instanceId: row.instanceId, source: row.instanceId ? "managed" : "external",
+    lastSeenAt: row.lastSeenAt, snapshotAt: row.snapshotAt,
     historical: Boolean(row.revokedAt) || !hub.isOnline(row.agentId),
     stale: !row.snapshotAt || Date.now() - row.snapshotAt > 5 * 60_000,
   };
@@ -54,15 +56,27 @@ export function registerContainerPool(app: FastifyInstance, db: DatabaseConnecti
     return { taskId };
   });
 
+  app.get("/api/v1/admin/inventory-settings", async (request) => {
+    access.requireAdmin(request);
+    return hub.inventorySettings();
+  });
+  app.patch("/api/v1/admin/inventory-settings", async (request) => {
+    access.requireAdmin(request);
+    const parsed = z.object({ intervalMs: z.number().int().min(30_000).max(3_600_000) }).strict().safeParse(request.body);
+    if (!parsed.success) throw new ApiFailure(400, "INVALID_INPUT", "容器对账间隔无效");
+    return hub.updateInventorySettings(parsed.data.intervalMs);
+  });
+
   app.get("/api/v1/admin/containers", async (request) => {
     access.requireAdmin(request);
     const input = agentFilter.safeParse(request.query);
     if (!input.success) throw new ApiFailure(400, "INVALID_INPUT", "容器筛选参数无效");
-    const { agentId, state, search, limit, offset } = input.data;
+    const { agentId, state, search, source, limit, offset } = input.data;
     const conditions = ["1 = 1"];
     const args: Array<string | number> = [];
     if (agentId) { conditions.push("ci.agent_id = ?"); args.push(agentId); }
     if (state) { conditions.push("ci.state = ?"); args.push(state); }
+    if (source) conditions.push(source === "managed" ? "ai.id IS NOT NULL" : "ai.id IS NULL");
     if (search) {
       conditions.push("(ci.name LIKE ? ESCAPE '\\' OR ci.image LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\')");
       const escaped = "%" + search.replace(/[\\%_]/g, "\\$&") + "%";
@@ -70,7 +84,8 @@ export function registerContainerPool(app: FastifyInstance, db: DatabaseConnecti
     }
     const where = " WHERE " + conditions.join(" AND ");
     const count = db.sqlite.prepare(
-      "SELECT COUNT(*) AS count FROM container_inventory ci JOIN agents a ON a.id = ci.agent_id" + where,
+      "SELECT COUNT(*) AS count FROM container_inventory ci JOIN agents a ON a.id = ci.agent_id " +
+      "LEFT JOIN app_instances ai ON ai.agent_id = ci.agent_id AND ai.compose_project = ci.compose_project" + where,
     ).get(...args) as { count: number };
     const records = db.sqlite.prepare(inventorySelect + where + " ORDER BY a.name COLLATE NOCASE, ci.name COLLATE NOCASE, ci.id LIMIT ? OFFSET ?")
       .all(...args, limit, offset) as InventoryRow[];
@@ -199,6 +214,25 @@ export function registerContainerPool(app: FastifyInstance, db: DatabaseConnecti
     if (removed.changes === 0) throw new ApiFailure(404, "INSTANCE_NOT_FOUND", "实例不存在");
     // Deleting the catalog entry never touches Docker containers or bookmarks.
     return { ok: true };
+  });
+
+  app.get("/api/v1/admin/app-instances/:id", async (request) => {
+    access.requireAdmin(request);
+    const parsed = deviceId.safeParse(request.params);
+    if (!parsed.success) throw new ApiFailure(400, "INVALID_INPUT", "实例 ID 无效");
+    const instance = db.sqlite.prepare(
+      "SELECT ai.id, ai.agent_id AS agentId, a.name AS agentName, ai.template_id AS templateId, " +
+      "ai.template_version AS templateVersion, ai.compose_project AS composeProject, " +
+      "ai.created_at AS createdAt, ai.install_task_id AS installTaskId " +
+      "FROM app_instances ai JOIN agents a ON a.id = ai.agent_id WHERE ai.id = ?",
+    ).get(parsed.data.id) as {
+      id: string; agentId: string; agentName: string; templateId: string; templateVersion: string;
+      composeProject: string; createdAt: number; installTaskId: string;
+    } | undefined;
+    if (!instance) throw new ApiFailure(404, "INSTANCE_NOT_FOUND", "实例不存在");
+    const rows = db.sqlite.prepare(inventorySelect + " WHERE ci.agent_id = ? AND ci.compose_project = ? ORDER BY ci.name")
+      .all(instance.agentId, instance.composeProject) as InventoryRow[];
+    return { instance, containers: rows.map(row => view(row, hub)) };
   });
 
   app.get("/api/v1/admin/app-instances", async (request) => {
