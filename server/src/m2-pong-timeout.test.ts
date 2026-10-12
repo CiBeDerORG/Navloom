@@ -74,3 +74,55 @@ test("T-040/T-044/T-047: one outstanding Ping; no Pong closes only that Agent an
   assert.equal(hub.probeReverseAll(), 1, "subsequent checks affect only the healthy Agent");
   healthy.emit("pong");
 });
+
+
+test("T-044/T-047: replaced Agent session cannot deliver a stale result or detach its replacement", (t) => {
+  const db = openDatabase(":memory:");
+  migrate(db.orm, { migrationsFolder: resolve(process.cwd(), "drizzle") });
+  const agentId = randomUUID();
+  db.sqlite.prepare("INSERT INTO agents (id, name) VALUES (?, ?)").run(agentId, "nas-replacement");
+  const hub = new AgentHub(db, { sweepIntervalMs: 5_000, helloTimeoutMs: 500 });
+  t.after(() => { hub.shutdown(); db.close(); });
+  const first = new SilentAgent();
+  const replacement = new SilentAgent();
+  const hello = () => Buffer.from(JSON.stringify({
+    protocol_version: 2, message_id: randomUUID(), agent_id: agentId,
+    sent_at: new Date().toISOString(), type: "hello", payload: { version: "v2-test" },
+  }));
+
+  hub.connect(agentId, first as unknown as WebSocket);
+  first.emit("message", hello(), false);
+  assert.equal(hub.isOnline(agentId), true);
+  const taskId = hub.requestCapabilityProbe(agentId);
+  assert.equal(hub.tasks.getTask(taskId)?.status, "sent");
+
+  hub.connect(agentId, replacement as unknown as WebSocket);
+  assert.equal(first.closedWith, 4001, "old WSS must be actively superseded");
+  assert.equal(hub.tasks.getTask(taskId)?.status, "unknown", "old in-flight task cannot be assumed successful");
+  replacement.emit("message", hello(), false);
+  assert.equal(hub.isOnline(agentId), true);
+
+  const stale = Buffer.from(JSON.stringify({
+    protocol_version: 2, message_id: randomUUID(), agent_id: agentId,
+    sent_at: new Date().toISOString(), type: "task_result", task_id: taskId,
+    payload: {
+      success: true, exit_code: null,
+      capabilities: {
+        platform: "linux", architecture: "amd64",
+        docker: { available: false, api_version: null, reason: "socket_missing" },
+        compose: { available: false, version: null, reason: "cli_missing" },
+      },
+    },
+  }));
+  first.emit("message", stale, false);
+  first.emit("pong");
+  first.emit("close");
+  assert.equal(hub.tasks.getTask(taskId)?.status, "unknown", "stale old socket must not finalize the task");
+  assert.equal(hub.tasks.getCapabilities(agentId).capabilities, null);
+  assert.equal(hub.isOnline(agentId), true, "old socket callbacks must not detach the new session");
+
+  assert.equal(hub.probeReverseAll(), 1);
+  replacement.emit("pong");
+  assert.ok(hub.connectionObservation(agentId).lastPongAt);
+  assert.equal(hub.isOnline(agentId), true);
+});
