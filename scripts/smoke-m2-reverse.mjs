@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { X509Certificate } from "node:crypto";
+import { X509Certificate, randomUUID } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -13,6 +13,66 @@ const children = [];
 const password = "isolated-reverse-ci-admin-password-123";
 const homePassphrase = "isolated-reverse-home-passphrase";
 let base = "";
+
+
+const dockerFixtureIDs = [];
+let dockerFixtureImage = "";
+
+// Opt-in side-effect tests run ONLY on the disposable GitHub-hosted Docker daemon.
+// Never operate on a user's NAS, externally supplied DOCKER_HOST, or production Docker.
+function docker(args, options = {}) {
+  return execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...options }).trim();
+}
+
+function provisionDisposableDockerFixtures() {
+  if (process.env.NAVLOOM_CI_DOCKER_FIXTURES !== "1") return null;
+  if (process.env.GITHUB_ACTIONS !== "true" || process.env.DOCKER_HOST) {
+    throw new Error("Docker mutation acceptance requires the isolated GitHub Actions Docker daemon");
+  }
+  const directory = join(temp, "docker-fixture");
+  mkdirSync(directory);
+  const source = join(directory, "main.go");
+  writeFileSync(source, [
+    "package main",
+    'import ("fmt"; "time")',
+    'func main() { fmt.Println("password=disposable-ci-canary"); time.Sleep(time.Hour) }',
+    "",
+  ].join("\n"));
+  execFileSync("go", ["build", "-o", join(directory, "fixture"), source], {
+    stdio: "pipe", env: { ...process.env, CGO_ENABLED: "0" },
+  });
+  writeFileSync(join(directory, "Dockerfile"), 'FROM scratch\nCOPY fixture /fixture\nENTRYPOINT ["/fixture"]\n');
+  dockerFixtureImage = "navloom-m2-ci:" + process.pid + "-" + Date.now();
+  docker(["build", "--quiet", "--tag", dockerFixtureImage, directory]);
+  function create(name, labels = []) {
+    const args = ["create", "--name", name, ...labels.flatMap(v => ["--label", v]), dockerFixtureImage];
+    const id = docker(args);
+    dockerFixtureIDs.push(id);
+    return id;
+  }
+  const suffix = process.pid + "-" + Date.now();
+  const labels = [
+    "com.docker.compose.project=navloomacceptance",
+    "com.docker.compose.service=app",
+    "private-acceptance-label=must-not-leak",
+  ];
+  const running = create("navloom-ci-running-" + suffix, labels);
+  const stopped = create("navloom-ci-exited-" + suffix);
+  docker(["start", running]);
+  docker(["start", stopped]);
+  docker(["stop", "--time", "1", stopped]);
+  assert.equal(docker(["inspect", "-f", "{{.State.Status}}", running]), "running");
+  assert.equal(docker(["inspect", "-f", "{{.State.Status}}", stopped]), "exited");
+  return { running, stopped };
+}
+
+function cleanupDisposableDockerFixtures() {
+  for (const id of dockerFixtureIDs.reverse()) {
+    spawnSync("docker", ["rm", "--force", id], { stdio: "ignore" });
+  }
+  if (dockerFixtureImage) spawnSync("docker", ["image", "rm", "--force", dockerFixtureImage], { stdio: "ignore" });
+}
+
 
 function privateIP() {
   for (const addresses of Object.values(networkInterfaces())) {
@@ -195,6 +255,8 @@ try {
     return child;
   }
 
+  const fixture = provisionDisposableDockerFixtures();
+
   const first = await registerAgent("nas-a");
   const second = await registerAgent("nas-b");
   assert.notEqual(first.id, second.id);
@@ -243,6 +305,78 @@ try {
   assert.ok(afterTask.find((device) => device.id === first.id)?.capabilities);
   assert.equal(afterTask.find((device) => device.id === second.id)?.capabilities, null,
     "Agent A task must not leak to Agent B");
+
+
+  // Real Docker acceptance on GitHub's disposable runner, never the user's NAS.
+  // The two independent Go Agents see the same daemon, but inventory, tasks,
+  // and Compose instance association remain strictly Agent-scoped.
+  if (fixture) {
+    const containersFor = async (id) =>
+      (await call("/api/v1/admin/containers?agentId=" + id, "GET", undefined, cookie)).payload.containers;
+    const taskStatus = async (id) =>
+      (await call("/api/v1/admin/agent-tasks/" + id, "GET", undefined, cookie)).payload.task.status;
+    const execute = async (id, operation) => {
+      const response = await call("/api/v1/admin/containers/" + id + "/action", "POST", {
+        operation, idempotencyKey: randomUUID(),
+      }, cookie);
+      await until(async () => (await taskStatus(response.payload.taskId)) === "succeeded");
+      return response.payload.taskId;
+    };
+    await until(async () => (await containersFor(first.id)).some(row => row.containerId === fixture.running) &&
+      (await containersFor(first.id)).some(row => row.containerId === fixture.stopped));
+    await until(async () => (await containersFor(second.id)).some(row => row.containerId === fixture.running));
+    const firstInventory = await containersFor(first.id);
+    const aRunning = firstInventory.find(row => row.containerId === fixture.running);
+    const aStopped = firstInventory.find(row => row.containerId === fixture.stopped);
+    assert.equal(aRunning.state, "running");
+    assert.equal(aStopped.state, "exited");
+    assert.equal(aRunning.composeProject, "navloomacceptance");
+    assert.equal(aRunning.composeService, "app");
+    assert.equal(aRunning.labels["private-acceptance-label"], undefined,
+      "untrusted Docker labels must not be exposed to browsers");
+    assert.equal(aRunning.source, "external");
+    const bRunning = (await containersFor(second.id)).find(row => row.containerId === fixture.running);
+    assert.notEqual(aRunning.id, bRunning.id, "different Agent inventory rows require different IDs");
+    assert.equal(bRunning.agentId, second.id);
+
+    // Create a catalog association on A only, without touching Docker.
+    const claimed = await call("/api/v1/admin/app-instances", "POST", {
+      agentId: first.id, composeProject: "navloomacceptance",
+      templateId: "ci-example", templateVersion: "1",
+    }, cookie);
+    assert.ok(claimed.payload.id);
+    const claimedA = (await containersFor(first.id)).find(row => row.containerId === fixture.running);
+    const unclaimedB = (await containersFor(second.id)).find(row => row.containerId === fixture.running);
+    assert.equal(claimedA.instanceId, claimed.payload.id);
+    assert.equal(claimedA.source, "managed");
+    assert.equal(unclaimedB.instanceId, null);
+    assert.equal(unclaimedB.source, "external");
+
+    // Stop/start/restart are allowed only via an explicit admin action.
+    await execute(aRunning.id, "stop");
+    await until(async () => docker(["inspect", "-f", "{{.State.Status}}", fixture.running]) === "exited");
+    await execute(aStopped.id, "start");
+    await until(async () => docker(["inspect", "-f", "{{.State.Status}}", fixture.stopped]) === "running");
+    await execute(aStopped.id, "restart");
+    await until(async () => docker(["inspect", "-f", "{{.State.Status}}", fixture.stopped]) === "running");
+
+    // Docker logs are bounded and must redact canary credentials.
+    const logsRequest = await call("/api/v1/admin/containers/" + aStopped.id + "/logs", "POST", {}, cookie);
+    await until(async () => (await taskStatus(logsRequest.payload.taskId)) === "succeeded");
+    const logRows = (await call("/api/v1/admin/agent-tasks/" + logsRequest.payload.taskId + "/logs",
+      "GET", undefined, cookie)).payload.lines;
+    assert.ok(logRows.some(row => row.line.includes("password=[REDACTED]")),
+      "real Docker log stream must redact password assignments");
+    assert.ok(logRows.every(row => !row.line.includes("disposable-ci-canary") && row.line.length <= 512));
+
+    // Destroying one fixture is reconciled without fabricating a deployment.
+    docker(["rm", "--force", fixture.stopped]);
+    await until(async () => !(await containersFor(first.id)).some(row => row.containerId === fixture.stopped),
+      20_000);
+    assert.equal((await containersFor(first.id)).find(row => row.containerId === fixture.running)?.instanceId,
+      claimed.payload.id);
+    console.log("M2 disposable real-Docker acceptance PASS: preexisting running/exited, labels, Agent isolation, instance association, start/stop/restart, bounded redacted logs and destroy reconciliation");
+  }
 
   // Stop and restart one passive Agent. The other one must remain connected.
   await stop(processB);
@@ -305,5 +439,6 @@ try {
   console.log("M2 reverse WSS v2 PASS: 2 passive Go Agents, no legacy inbound route, home-only activation, mTLS, global Ping, isolated tasks, restart, revoke, kernel TCP zero-page idle, shared auto mode and timer shutdown");
 } finally {
   for (const child of children.reverse()) await stop(child);
+  cleanupDisposableDockerFixtures();
   rmSync(temp, { recursive: true, force: true });
 }
