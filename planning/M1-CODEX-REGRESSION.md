@@ -7,6 +7,75 @@
 >
 > **基线（2026-10-11，提交 `63e7edc`）**：M1 共 25 项，11 项已勾选验收，**14 项未完成**（9 项 UI/交互待回归，5 项依赖 M2）；M2 共 26 项，**T-035 已通过自动化验收（1/26）**，T-034/T-036/T-041～T-043 已有部分实现且接入 WSS，T-037～T-040 代码已提交并通过自动化 CI，**以上均待 Codex 独立验收**；T-044～T-047 已提交受限任务/能力探测代码，等待 Codex 验收；T-048～T-059 的 12 项尚未实现。代码存在 ≠ 测试通过；CI 通过 ≠ 浏览器/真实 Agent 联调通过。
 
+## 【M2 最新总控】ChatGPT 已验收证据与 Codex 剩余工作（2026-10-12）
+
+> **Codex 从这一节开始，不要把后面的 C/D 历史描述当成当前代码状态。** 原始任务文件仍是 planning/tasks/04-agent.md 和 05-inventory.md；本文件仍是唯一验收工作单，不另开文件。目前正式签核 **1/26（仅 T-035）**。自动化 PASS、功能代码完成和正式验收 PASS 是三个不同的概念；任一子项未跑不得勾选原任务。
+
+### 1. 已执行的自动化及其证据
+
+| 范围 | 实测事实 | CI 证据/边界 |
+| --- | --- | --- |
+| 工程 | Web/Server/SQLite/Go 构建和单测、Go -race、Compose 开发环境 | [CI 38211915345](https://github.com/CiBeDerORG/Navloom/actions/runs/38211915345)，4/4 PASS |
+| 真实 Agent/协议 | 同 Runner 两个真实 Go 被动进程 + Node Server mTLS 反向 WSS；首页/后台页面 WSS、自动/手动 Ping、A/B 任务隔离、撤销与重连 | scripts/smoke-m2-reverse.mjs；非两台物理 NAS |
+| 真 Docker | GitHub 托管临时 Runner 的专用容器：运行/停止发现、Compose labels、按 Agent 隔离、真实 stop/start/restart、日志脱敏、destroy 后自动对账 | 同 CI 日志含 M2 disposable real-Docker acceptance PASS；两个 Agent **共用一个 Docker daemon** |
+| 0 页面网络 | /proc/net/tcp* 显示无 ESTABLISHED TCP，末页关闭和整个自动心跳周期未重建连接 | **不是包级 0 字节抓包** |
+| 边界/竞态 | 高频 Docker 事件、旧扫描重对账、WS 并发 -race、Compose 重建隔离模拟 | [CI 38211154811](https://github.com/CiBeDerORG/Navloom/actions/runs/38211154811)，4/4 PASS |
+| 实浏览器 | scripts/m2-chromium.mjs 已加入 GitHub Runner CI，尝试真实 Chrome 口令与多页生命周期 | **仅以实际 Chrome CI PASS 与 M2 real Chromium PASS 日志为准；失败时写 FAIL，不得标通过** |
+
+### 2. 26 项逐项交接矩阵
+
+说明：中间列是已运行的**部分证据**，不是完整任务签核。Codex 要补齐最后一列每条要求，并根据原任务验收条件补充其他必要验证。正式状态全部 NOT_RUN，T-035 保留原任务已勾选但独立复核待做。
+
+| 任务 | 已有自动化子项 | Codex 仍需独立验收的关键项目 | 正式验收 |
+| --- | --- | --- | --- |
+| T-34 | 配对/数据库持久化、重连单测 | 实机 Server 重启、Agent ID 唯一性、撤销/历史记录不丢 | NOT_RUN |
+| T-35 | 一次性令牌已正式勾选 | Codex 独立复核过期/复用/非管理员/秘密不泄露；保持 [x] | 已勾选，复核待做 |
+| T-36 | Go-Node mTLS、证书用途、私网 IP/0600 单测 | 双实体 Agent 证书互换/过期/错误地址及重配对 | NOT_RUN |
+| T-37 | Server 反向 WSS、0/1/N TCP、撤销测试 | 真实 EasyTier：零页面抓包、重复连接/SSRF/错误证书 | NOT_RUN |
+| T-38 | Go 被动监听、TLS 拒绝/关闭测试 | NAS 只监听私网、无出站重连/轮询、停止服务 | NOT_RUN |
+| T-39 | v2 信封/版本/重放与恶意帧测试 | 伪造身份、任意命令、旧 JSON heartbeat 实机拒绝 | NOT_RUN |
+| T-40 | 浏览器/Mock 页面、自动/手动 Ping、历史冻结 | 手机/桌面跨设备、强杀浏览器、口令撤销、0 字节抓包 | NOT_RUN |
+| T-41 | 管理员 Agent API、配置/历史数据回归 | 跨 Server 重启、只首页凭据无法管理、状态标签正确 | NOT_RUN |
+| T-42 | 全局 AdminShell、设置共享与广播代码 | 任意管理员页面跨设备配置及手动按钮，无重复调度 | NOT_RUN |
+| T-43 | 真实双 Go Agent 撤销 A 不影响 B | 重启已撤销 A 后仍不能连/操作且历史保留 | NOT_RUN |
+| T-44 | 任务路由/超时/unknown/重复结果测试 | Server/Agent 异常退出后副作用任务不重放 | NOT_RUN |
+| T-45 | 白名单/会话重放、专用真 Docker 动作 | 恶意参数/未认证动作；Compose 部署尚属 M3 预留 | NOT_RUN |
+| T-46 | 只读 Docker/Compose 探测和隔离测试 | 无 Socket/权限不足/Compose 缺失及无页不探测 | NOT_RUN |
+| T-47 | 两个真实 Go Agent、mTLS 和 TCP 无连接 | 两台独立 Docker 主机+实网抓包/浏览器异常退出 | NOT_RUN |
+| T-48 | Runner 真 Docker all=1 发现运行和退出容器 | FNOS Docker API、Agent 启动前已有容器、容器数量上限 | NOT_RUN |
+| T-49 | 分片/原子快照、跨 Agent 隔离/失败保留 | Server 重启、乱序重放、无页快照不变 | NOT_RUN |
+| T-50 | 真实 Docker destroy、快速事件、旧扫描竞态 | 两实体主机频繁事件、失联期间操作/重连后全量纠正 | NOT_RUN |
+| T-51 | Compose 标签、端口/状态规范与敏感标签过滤 | 多端口/协议、IPv6、无 Compose、绝不猜测 URL | NOT_RUN |
+| T-52 | 容器列表/分页/筛选及管理 API 单测 | 真实浏览器筛选、无 Cookie/首页 Cookie 拒绝管理 | NOT_RUN |
+| T-53 | Vue 容器池页面功能已实现 | 浏览器 UI 搜索/空态/详情/移动端，容器不自动进首页 | NOT_RUN |
+| T-54 | paused/最后快照冻结回归 | 实网离开全部页面、重连同步及历史/过期展示 | NOT_RUN |
+| T-55 | 临时真 Docker stop/start/restart、Journal 测试 | 授权专用容器定向/幂等/失败/断线/越权保护 | NOT_RUN |
+| T-56 | AppInstance 模型、目录 API/来源测试 | 实例/任务跨 Server 重启，外部项目不自动转受管 | NOT_RUN |
+| T-57 | 跨 Agent 同名项目及重建模拟，真实项目登记 | 专用 Compose force-recreate 后新容器 ID 稳定归属 | NOT_RUN |
+| T-58 | 真 Docker 有界日志/模拟密码脱敏测试 | 权限、超大日志、断线；持续流式查看实现差异需定论 | NOT_RUN |
+| T-59 | 双 Go Agent 与一个真 Docker daemon 全链路 CI | 两独立设备、实浏览器、零包抓取、重建/压力与完整验收 | NOT_RUN |
+
+### 3. Codex 必须补验的五组真实场景
+
+**R1 两台真正独立设备（T-034～T-039/T-043/T-047）**：使用受控 Server + A、B 两台不同主机及独立 Docker daemon；记录 EasyTier IP、端口、OS、Go Agent/Server SHA、Docker/Compose 版本。复测证书串用/过期/错误 IP、配对/撤销、Server 与 Agent 重启、设备私网监听；不能拿两个 CI 进程冒充两台 NAS。
+
+**R2 零页面包级抓包（T-037/T-038/T-040/T-047/T-050/T-054）**：记录 Server ↔ Agent 的真实 IP、TCP 端口、网卡与已登录页面数；全部页面关闭、连接收敛后，对完整自动探测周期（建议至少两轮）用 tcpdump 或同等级工具抓取双向包。确认 TLS 握手、重连、Ping/Pong、Docker 事件均 **0 包、0 字节**；1 个首页导航页能建连、N 个实际设备/标签仅每 Agent 一条 WSS、管理员页单独可维持，最后页异常关闭后最终归零且历史不变。留 .pcap、过滤表达式、时间窗口、包数和日志路径。/proc/net/tcp 无 ESTABLISHED 不够。
+
+**R3 浏览器 UI 与权限（T-040～T-042/T-052～T-054/T-058）**：匿名、仅首页 Cookie、管理员三组，测试导航首页、管理导航、应用实例、设置页面；PC + Android 实浏览器；登录/注销/修改口令、多个标签切换、配置同步、手动检测、浏览器强杀/长时后台；容器池筛选/详情/日志/历史提示；留下带状态的截图、浏览器 WS/网络记录及 401/403 返回。
+
+**R4 仅授权的专用 Docker/Compose（T-045/T-046/T-048～T-059）**：未经用户授权禁止触碰真实 NAS。使用专门创建的 navloom-acceptance-* 测试容器/Compose 项目，先记录 ID、卷、工作目录与清理范围；测试已存在/停止/外部容器、管理员操作、重复键、异常断开/Journal、日志上限/脱敏、容器事件密集变化；force-recreate 测试项目后校验新容器 ID 仍关联原实例，不串 Agent。只清理经授权创建的测试资源，绝不删除生产容器或数据。
+
+**R5 原任务与实现差异，必须报告而非自行降级**：T-048/T-055 原任务写 Docker Go SDK，当前使用受限 Docker Unix HTTP API；T-058 原任务写流式日志，实际是有界读取；T-045 描述 Compose 部署但实际保留至 M3。Codex 请列出缺口及是否需要修改实现或请用户批准等效验收；未经确认不可以勾选。
+
+### 4. 执行入口、逐项证据与签核规则
+
+- 在隔离环境先记录 GitHub main SHA，并运行：npm ci；npm run build；npm run typecheck；npm run lint:ts；npm run test:server；cd agent 后执行 go test -race ./...。每条记录退出码和日志。CI Docker 副作用脚本具有 GitHub Actions opt-in 保护，**不要将其环境变量复制到真实 NAS**。
+- 每项输出：T-编号 | PASS/FAIL/BLOCKED_ENV/NOT_RUN | 设备与版本 | 操作/命令及时间 | 日志/截图/pcap位置 | 修复提交 | 剩余条件。无法获得设备/授权时写 BLOCKED_ENV，禁止猜 PASS。
+- 只在满足 tasks/04-agent.md 或 05-inventory.md 的**全部验收条件**后才修改原复选框，同步 planning/M2-IMPLEMENTATION.md；把实测结果**追加到本文件最末尾**，保持一个权威清单。
+- M2 结束条件：T-034～T-059 全部真实 PASS、E1/E2/E3 实机证据完整、无未解决高危问题。CI 全绿只是必要条件。
+
+---
+
 ## 给 Codex 的执行指令
 
 1. 先阅读本文件、[M1 实施记录](./M1-IMPLEMENTATION.md)、[M2 实施记录](./M2-IMPLEMENTATION.md)、[PRD](./PRD.md)、[决策记录](./DECISIONS.md) 和对应任务原文；检查当前代码而不是仅相信旧实施记录。
