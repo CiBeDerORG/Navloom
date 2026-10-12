@@ -177,6 +177,11 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 			return
 		}
 		log.Info("Server connected to passive Agent", "agent_id", identity.AgentID)
+		// Prevent replay inside one authenticated WSS session, including when a
+		// fresh message_id is paired with a task_id that already ran. The ledger
+		// is bounded; future mutating operations also require durable dedupe.
+		seenTasks := make(map[string]struct{})
+		seenMessages := make(map[string]struct{})
 		for {
 			kind, data, err := conn.ReadMessage()
 			if err != nil {
@@ -191,6 +196,20 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 				_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "task rejected"), time.Now().Add(time.Second))
 				return
 			}
+			if _, replay := seenTasks[task.TaskID]; replay {
+				_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "replayed task"), time.Now().Add(time.Second))
+				return
+			}
+			if _, replay := seenMessages[task.MessageID]; replay {
+				_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "replayed message"), time.Now().Add(time.Second))
+				return
+			}
+			if len(seenTasks) >= maxTasksPerSession {
+				_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "session task limit"), time.Now().Add(time.Second))
+				return
+			}
+			seenTasks[task.TaskID] = struct{}{}
+			seenMessages[task.MessageID] = struct{}{}
 			capabilities := probe.DiscoverDocker(ctx)
 			result, err := protocol.NewCapabilityResult(identity.AgentID, task.TaskID, capabilities)
 			if err != nil || writeMessage(conn, result) != nil {
@@ -202,6 +221,7 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 
 // The passive Agent only writes a hello or an explicit task result.
 const maxMessageBytes = 64 * 1024
+const maxTasksPerSession = 1024
 
 func writeMessage(conn *websocket.Conn, message protocol.Message) error {
 	if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
