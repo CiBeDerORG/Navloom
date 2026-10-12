@@ -105,6 +105,11 @@ export const AgentMessageSchema = z.discriminatedUnion("type", [
   }).strict(),
   z.object({
     ...envelope,
+    type: z.literal("inventory_changed"),
+    payload: z.object({ resource: z.literal("containers") }).strict(),
+  }).strict(),
+  z.object({
+    ...envelope,
     type: z.literal("inventory_chunk"),
     task_id: z.string().uuid(),
     payload: z.object({
