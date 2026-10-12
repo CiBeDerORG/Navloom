@@ -294,6 +294,17 @@ try {
   }
 
   const fixture = provisionDisposableDockerFixtures();
+  if (fixture && process.env.GITHUB_ACTIONS === "true") {
+    // Genuine Go executor + Compose CLI, limited to the disposable image just
+    // built on this same hosted runner; never connected to a user's NAS.
+    const tested = execFileSync("go", ["test", "./internal/deploy",
+      "-run", "^TestDisposableComposeV2RealDocker$", "-count=1", "-v"], {
+      cwd: resolve("agent"), encoding: "utf8", timeout: 120_000,
+      env: { ...process.env, NAVLOOM_CI_IMAGE: dockerFixtureImage },
+    });
+    assert.match(tested, /M3 disposable Go Compose v2 executor PASS/);
+    console.log("M3 disposable Go Compose v2 executor PASS: actual compose up -d and no task replay");
+  }
 
   const first = await registerAgent("nas-a");
   const second = await registerAgent("nas-b");
