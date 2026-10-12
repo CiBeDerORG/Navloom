@@ -8,13 +8,19 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
+
+type ContainerEvent struct {
+	ContainerID string
+	Action      string
+}
 
 // WatchDockerEvents listens to the local read-only Docker events stream.
 // It is called exclusively inside an authenticated Agent WSS lifetime;
 // no Server or remote TCP connection is initiated by this function.
-func WatchDockerEvents(ctx context.Context, notify func()) error {
+func WatchDockerEvents(ctx context.Context, notify func(ContainerEvent)) error {
 	socket, err := inventorySocket()
 	if err != nil {
 		return err
@@ -22,7 +28,7 @@ func WatchDockerEvents(ctx context.Context, notify func()) error {
 	return watchDockerEventsAt(ctx, socket, notify)
 }
 
-func watchDockerEventsAt(ctx context.Context, socket string, notify func()) error {
+func watchDockerEventsAt(ctx context.Context, socket string, notify func(ContainerEvent)) error {
 	info, err := os.Stat(socket)
 	if err != nil || info.Mode()&os.ModeSocket == 0 {
 		return errors.New("Docker event socket unavailable")
@@ -53,15 +59,23 @@ func watchDockerEventsAt(ctx context.Context, socket string, notify func()) erro
 		var event struct {
 			Type   string `json:"Type"`
 			Action string `json:"Action"`
+			ID     string `json:"id"`
+			Actor struct {
+				ID string `json:"ID"`
+			} `json:"Actor"`
 		}
 		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Type != "container" {
 			continue
 		}
+		id := event.Actor.ID
+		if id == "" { id = event.ID }
+		id = strings.ToLower(id)
+		if !isHexID(id) { continue }
 		switch event.Action {
 		case "create", "start", "stop", "die", "destroy", "rename", "pause", "unpause", "restart", "update":
 			if time.Since(latest) >= 500*time.Millisecond {
 				latest = time.Now()
-				notify()
+				notify(ContainerEvent{ContainerID: id, Action: event.Action})
 			}
 		}
 	}
