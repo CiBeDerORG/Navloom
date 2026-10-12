@@ -229,3 +229,61 @@ test("T-050: event arriving during a full scan schedules another reconciliation"
   await new Promise((done) => setTimeout(done, 1100));
   assert.equal(refreshes().length, 2, "zero-page mode must not dispatch any further Docker task");
 });
+
+test("T-057/T-059: recreated Compose container stays with its Agent's original instance", async (t) => {
+  const db = openDatabase(":memory:");
+  migrate(db.orm, { migrationsFolder: resolve(process.cwd(), "drizzle") });
+  const a = randomUUID(), b = randomUUID(), instanceId = randomUUID();
+  db.sqlite.prepare("INSERT INTO agents (id, name) VALUES (?, ?)").run(a, "nas-a");
+  db.sqlite.prepare("INSERT INTO agents (id, name) VALUES (?, ?)").run(b, "nas-b");
+  db.sqlite.prepare(
+    "INSERT INTO admin_users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
+  ).run(randomUUID(), "admin", await hashPassword("compose-rebuild-test-password-123"), Date.now());
+  db.sqlite.prepare(
+    "INSERT INTO app_instances (id, agent_id, template_id, template_version, compose_project, deployment_path, install_task_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(instanceId, a, "web", "1", "website", "/isolated/website", randomUUID(), Date.now());
+  const insert = db.sqlite.prepare(
+    "INSERT INTO container_inventory (id, agent_id, container_id, name, image, state, ports_json, labels_json, compose_project, compose_service, last_seen_at) VALUES (?, ?, ?, ?, ?, 'running', '[]', '{}', 'website', 'web', ?)",
+  );
+  const oldA = randomUUID();
+  insert.run(oldA, a, "a".repeat(64), "a-old", "nginx:1", Date.now());
+  insert.run(randomUUID(), b, "b".repeat(64), "b-independent", "nginx:1", Date.now());
+  const app = buildApp({ logger: false }, { database: db });
+  t.after(async () => { await app.close(); db.close(); });
+  const login = await app.inject({
+    method: "POST", url: "/api/v1/auth/admin/login",
+    headers: { "x-navloom-csrf": "1", "content-type": "application/json" },
+    payload: { username: "admin", password: "compose-rebuild-test-password-123" },
+  });
+  assert.equal(login.statusCode, 200);
+  const headers = { cookie: login.headers["set-cookie"] as string };
+  const list = async () => {
+    const response = await app.inject({ method: "GET", url: "/api/v1/admin/containers", headers });
+    assert.equal(response.statusCode, 200);
+    return response.json().containers as Array<{
+      agentId: string; containerId: string; instanceId: string | null; source: string;
+    }>;
+  };
+  const initial = await list();
+  assert.equal(initial.find(row => row.agentId === a)?.instanceId, instanceId);
+  assert.equal(initial.find(row => row.agentId === b)?.instanceId, null,
+    "another Agent with the same Compose project must not inherit the managed instance");
+
+  // Simulate a successful fresh Docker inventory after Compose recreated a
+  // container: the ID changes but Agent + project remain the stable identity.
+  db.sqlite.prepare("DELETE FROM container_inventory WHERE id = ?").run(oldA);
+  insert.run(randomUUID(), a, "c".repeat(64), "a-rebuilt", "nginx:2", Date.now());
+  const refreshed = await list();
+  assert.equal(refreshed.length, 2);
+  assert.equal(refreshed.find(row => row.agentId === a)?.containerId, "c".repeat(64));
+  assert.equal(refreshed.find(row => row.agentId === a)?.instanceId, instanceId);
+  assert.equal(refreshed.find(row => row.agentId === a)?.source, "managed");
+  assert.equal(refreshed.find(row => row.agentId === b)?.instanceId, null);
+  assert.equal(refreshed.find(row => row.agentId === b)?.source, "external");
+  const details = await app.inject({
+    method: "GET", url: "/api/v1/admin/app-instances/" + instanceId, headers,
+  });
+  assert.equal(details.statusCode, 200);
+  assert.equal(details.json().containers.length, 1);
+  assert.equal(details.json().containers[0].containerId, "c".repeat(64));
+});
