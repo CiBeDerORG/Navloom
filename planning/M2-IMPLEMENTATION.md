@@ -215,3 +215,9 @@ npm run test:go
 - **扫描中事件不被旧任务吞并**：`AgentTasks.hasPendingInventoryRefresh` 检测正在执行的扫描；Server 的 Docker 事件重对账会在旧扫描完成后重新派发，直到连接结束或任务过期。`m2-inventory.test.ts` 模拟 event 与旧扫描竞态、旧扫描完成后新任务独立发送，以及最后一个页面退出时停止派发、未决任务转 `unknown`。提交 `e669371`、`fe52c0f`、`4fd54b0`；[CI 38210779521](https://github.com/CiBeDerORG/Navloom/actions/runs/38210779521) **4/4 通过**。
 - **并发竞争检测纳入 CI**：Go Agent 工作流除常规单测外执行 `go test -race ./internal/probe ./internal/transport`，针对本地 Docker 事件读取与 Agent WSS 传输的现有测试启用数据竞争检测。提交 `6672080`；[CI 38210899055](https://github.com/CiBeDerORG/Navloom/actions/runs/38210899055) **4/4 通过**。
 - **边界**：以上都是隔离自动化，不是 Go 事件高负载压测、真实 NAS、实际 Docker 容器重建、跨设备浏览器或包级零通信抓包。T-050/T-059 及相关 E 组复选框保持未验收，不将 CI 绿色视为完整 M2 PASS。
+
+## 2026-10-12 GitHub 托管环境真实 Docker 联调
+
+为补足原有 mock Docker API 的限制，现将 `scripts/smoke-m2-reverse.mjs` 扩展为**显式 opt-in 的一次性真实 Docker 验收**（仅 GitHub Actions，拒绝显式 `DOCKER_HOST`，执行后自动清理专用镜像和容器）。沿用两台独立真实 Go Agent 与 Node Server 的双向 TLS 私网 WSS 联调，同时验证发现先前运行中/已停止容器、容器 Compose 标签与敏感标签隔离、按 Agent 隔离的清单和实例关联、管理员显式启动/停止/重启、真实容器日志脱敏、Docker destroy 后事件收敛。提交 `1155a5c`、`b82f694`、`54d8332`；[CI 38211915345](https://github.com/CiBeDerORG/Navloom/actions/runs/38211915345) 四项成功，集成日志明确输出 `M2 disposable real-Docker acceptance PASS`。
+
+此测试使用 **同一 GitHub-hosted runner 上的一个独立 Docker daemon**。真实家庭 FNOS/NAS、不同机器独立 Docker daemon、跨地域 EasyTier 网络、真实移动浏览器页面管理、包级零流量抓包、TLS 身份轮换/迁移及大规模容器压力验收**尚未完成**。因此不得将 M2 剩余任务的验收勾选视为已全部通过。
