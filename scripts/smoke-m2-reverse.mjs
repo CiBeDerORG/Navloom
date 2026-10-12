@@ -18,6 +18,7 @@ let base = "";
 
 const dockerFixtureIDs = [];
 let dockerFixtureImage = "";
+let disposableCompose = null;
 
 // Opt-in side-effect tests run ONLY on the disposable GitHub-hosted Docker daemon.
 // Never operate on a user's NAS, externally supplied DOCKER_HOST, or production Docker.
@@ -68,6 +69,10 @@ function provisionDisposableDockerFixtures() {
 }
 
 function cleanupDisposableDockerFixtures() {
+  if (disposableCompose) {
+    spawnSync("docker", ["compose", "-p", disposableCompose.project, "-f", disposableCompose.file,
+      "down", "--remove-orphans"], { stdio: "ignore" });
+  }
   for (const id of dockerFixtureIDs.reverse()) {
     spawnSync("docker", ["rm", "--force", id], { stdio: "ignore" });
   }
@@ -442,6 +447,35 @@ try {
     assert.equal((await containersFor(second.id)).find(row => row.containerId === recreated)?.instanceId,
       null, "Agent B must not inherit A's managed Compose instance");
     console.log("M2 disposable real-Docker acceptance PASS: preexisting running/exited, labels, Agent isolation, instance association, start/stop/restart, bounded redacted logs, destroy reconciliation and real container replacement");
+    // Real Compose v2 recreate, not just a raw container with Compose labels.
+    // Confined to an ephemeral project and the same disposable local image.
+    const project = "navloomacceptance" + process.pid;
+    const file = join(temp, "acceptance-compose.yml");
+    writeFileSync(file, "services:\n  app:\n    image: " + dockerFixtureImage + "\n");
+    disposableCompose = { file, project };
+    const compose = (...args) => docker(["compose", "-p", project, "-f", file, ...args]);
+    compose("up", "-d");
+    const original = compose("ps", "-q", "app");
+    assert.ok(original.length >= 12, "Compose must create the first application container");
+    await until(async () => (await containersFor(first.id)).some(row => row.containerId === original), 20_000);
+    const registered = await call("/api/v1/admin/app-instances", "POST", {
+      agentId: first.id, composeProject: project,
+      templateId: "ci-compose", templateVersion: "1",
+    }, cookie);
+    assert.ok(registered.payload.id);
+    compose("up", "-d", "--force-recreate");
+    const next = compose("ps", "-q", "app");
+    assert.notEqual(next, original, "Compose force-recreate must change container ID");
+    await until(async () => {
+      const rows = await containersFor(first.id);
+      return rows.some(row => row.containerId === next) && !rows.some(row => row.containerId === original);
+    }, 20_000);
+    await until(async () => (await containersFor(second.id)).some(row => row.containerId === next), 20_000);
+    assert.equal((await containersFor(first.id)).find(row => row.containerId === next)?.instanceId,
+      registered.payload.id, "real Compose up --force-recreate must preserve instance association");
+    assert.equal((await containersFor(second.id)).find(row => row.containerId === next)?.instanceId,
+      null, "Compose association must not leak to a different Agent");
+    console.log("M2 disposable Compose v2 force-recreate PASS: new container ID, Agent A stable managed instance, Agent B external");
   }
 
   // Stop and restart one passive Agent. The other one must remain connected.
