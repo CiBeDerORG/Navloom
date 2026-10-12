@@ -19,13 +19,13 @@ type InventoryRow = {
   id: string; agentId: string; containerId: string; name: string; image: string; state: string;
   portsJson: string; labelsJson: string; composeProject: string | null; composeService: string | null;
   lastSeenAt: number; agentName: string; revokedAt: number | null; snapshotAt: number | null;
-  instanceId: string | null;
+  instanceId: string | null; instanceTemplateId: string | null;
 };
 const inventorySelect = `SELECT ci.id, ci.agent_id AS agentId, ci.container_id AS containerId,
  ci.name, ci.image, ci.state, ci.ports_json AS portsJson, ci.labels_json AS labelsJson,
  ci.compose_project AS composeProject, ci.compose_service AS composeService,
  ci.last_seen_at AS lastSeenAt, a.name AS agentName, a.revoked_at AS revokedAt,
- s.updated_at AS snapshotAt, ai.id AS instanceId
+ s.updated_at AS snapshotAt, ai.id AS instanceId, ai.template_id AS instanceTemplateId
  FROM container_inventory ci
  JOIN agents a ON a.id = ci.agent_id
  LEFT JOIN agent_inventory_snapshots s ON s.agent_id = ci.agent_id
@@ -37,7 +37,8 @@ function view(row: InventoryRow, hub: AgentHub) {
     agentName: row.agentName, name: row.name, image: row.image, state: row.state,
     ports: JSON.parse(row.portsJson) as unknown, labels: JSON.parse(row.labelsJson) as unknown,
     composeProject: row.composeProject, composeService: row.composeService,
-    instanceId: row.instanceId, source: row.instanceId ? "managed" : "external",
+    instanceId: row.instanceId,
+    source: row.instanceTemplateId && row.instanceTemplateId !== "external" ? "managed" : "external",
     lastSeenAt: row.lastSeenAt, snapshotAt: row.snapshotAt,
     historical: Boolean(row.revokedAt) || !hub.isOnline(row.agentId),
     stale: !row.snapshotAt || Date.now() - row.snapshotAt > 5 * 60_000,
@@ -76,7 +77,9 @@ export function registerContainerPool(app: FastifyInstance, db: DatabaseConnecti
     const args: Array<string | number> = [];
     if (agentId) { conditions.push("ci.agent_id = ?"); args.push(agentId); }
     if (state) { conditions.push("ci.state = ?"); args.push(state); }
-    if (source) conditions.push(source === "managed" ? "ai.id IS NOT NULL" : "ai.id IS NULL");
+    if (source) conditions.push(source === "managed"
+      ? "(ai.id IS NOT NULL AND ai.template_id <> 'external')"
+      : "(ai.id IS NULL OR ai.template_id = 'external')");
     if (search) {
       conditions.push("(ci.name LIKE ? ESCAPE '\\' OR ci.image LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\')");
       const escaped = "%" + search.replace(/[\\%_]/g, "\\$&") + "%";
