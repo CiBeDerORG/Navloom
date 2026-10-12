@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import {
-  getApplicationCatalog, getApplicationTemplate, previewApplicationTemplate, preflightApplicationInstall, getAdminNavigation, savePreparedInstallation,
+  getApplicationCatalog, getApplicationTemplate, previewApplicationTemplate, preflightApplicationInstall, getAdminNavigation, savePreparedInstallation, getPreparedInstallations,
   type AgentDevice, type CatalogPreview, type CatalogTemplateDetail, type CatalogTemplateSummary,
-  type NavigationDraft, type NavigationGroup, type InstallationPreflight,
+  type NavigationDraft, type NavigationGroup, type InstallationPreflight, type PreparedInstallTask,
 } from "../lib/api";
 
 const props = defineProps<{ agents: AgentDevice[] }>();
@@ -16,6 +16,7 @@ const preview = ref<CatalogPreview | null>(null);
 const installPreflight = ref<InstallationPreflight | null>(null);
 const navigation = ref<NavigationDraft>({ title: "", url: "", icon: null, description: null, groupId: null, openTarget: "_blank" });
 const groups = ref<NavigationGroup[]>([]);
+const preparedList = ref<PreparedInstallTask[]>([]);
 const loading = ref(true);
 const busy = ref(false);
 const error = ref("");
@@ -36,6 +37,7 @@ async function loadCatalog() {
   try {
     catalog.value = (await getApplicationCatalog()).templates;
     groups.value = (await getAdminNavigation()).groups;
+    preparedList.value = (await getPreparedInstallations()).tasks;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "无法读取应用模板目录";
   } finally {
@@ -148,6 +150,7 @@ async function savePreparedDraft() {
     });
     preparedTaskId.value = result.taskId;
     preparedNotice.value = result.message;
+    preparedList.value = (await getPreparedInstallations()).tasks;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "无法安全保存安装草稿";
   } finally {
@@ -296,6 +299,21 @@ async function savePreparedDraft() {
         <p v-if="preparedTaskId" class="mt-1 break-all font-mono text-xs text-slate-400">任务 ID：{{ preparedTaskId }}</p>
         <p class="mt-3 text-amber-300">当前预览不会部署；只有管理员明确保存后才创建加密草稿，状态仍为 prepared，绝不会自动启动 Docker。正式执行功能将在 M3 后续阶段开放。</p>
       </div>
+    </section>
+    <section class="mt-6 rounded-xl border border-white/10 p-4" aria-labelledby="prepared-install-list">
+      <div class="flex items-center justify-between gap-3">
+        <h3 id="prepared-install-list" class="text-base font-semibold">已安全保存的安装草稿</h3>
+        <span class="text-xs text-amber-300">仅准备，未部署</span>
+      </div>
+      <p class="mt-2 text-xs text-slate-400">只显示非敏感元数据。密码及加密内容不返回浏览器。实际 Compose 执行器尚未启用。</p>
+      <p v-if="preparedList.length === 0" class="mt-3 text-sm text-slate-400">暂无已保存草稿。</p>
+      <ul v-else class="mt-4 space-y-2" aria-label="安装任务草稿">
+        <li v-for="task in preparedList" :key="task.id" class="rounded-lg border border-white/10 p-3 text-sm">
+          <span class="font-medium">{{ task.navigationTitle }} · {{ task.templateId }}</span>
+          <span class="ml-2 text-xs text-amber-300">prepared（未执行）</span>
+          <span class="mt-1 block text-xs text-slate-400">{{ task.agentName }} · {{ new Date(task.createdAt).toLocaleString() }}</span>
+        </li>
+      </ul>
     </section>
   </section>
 </template>
