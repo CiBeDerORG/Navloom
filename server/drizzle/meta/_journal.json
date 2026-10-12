@@ -57,6 +57,13 @@
       "when": 1760140807000,
       "tag": "0007_m2_controls_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1760140808000,
+      "tag": "0008_m2_inventory_settings",
+      "breakpoints": true
     }
   ]
 }
