@@ -165,3 +165,10 @@ export const refreshAgentInventory = (id: string) =>
   request<{ taskId: string }>("/admin/agents/" + encodeURIComponent(id) + "/inventory-refresh", { method: "POST", body: "{}" });
 export const getDeployedAppInstances = () =>
   request<{ instances: DeployedAppInstance[] }>("/admin/app-instances");
+
+export const claimComposeInstance = (agentId: string, composeProject: string) =>
+  request<{ id: string }>("/admin/app-instances", {
+    method: "POST", body: payload({ agentId, composeProject }),
+  });
+export const unclaimComposeInstance = (id: string) =>
+  request<{ ok: boolean }>("/admin/app-instances/" + encodeURIComponent(id), { method: "DELETE" });
