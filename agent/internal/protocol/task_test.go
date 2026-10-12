@@ -41,6 +41,31 @@ func TestCapabilityTaskStrictAllowlist(t *testing.T) {
 	}
 }
 
+func TestDockerCommandsRequireExactAllowedContainerIDs(t *testing.T) {
+	id := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	for _, operation := range []string{"container_start", "container_stop", "container_restart", "container_logs"} {
+		msg, err := DecodeTaskDispatch(taskJSON(validAgent, operation, map[string]any{"container_id": id}), validAgent)
+		if err != nil || TaskOperation(msg) != operation || TaskContainerID(msg) != id {
+			t.Fatalf("valid, explicit Docker command rejected: %s %v", operation, err)
+		}
+		for _, args := range []any{
+			map[string]any{"container_id": "../evil"},
+			map[string]any{"container_id": id, "shell": "id"},
+			map[string]any{"container_id": "deadbeef"},
+			map[string]any{},
+		} {
+			if _, err := DecodeTaskDispatch(taskJSON(validAgent, operation, args), validAgent); err == nil {
+				t.Fatalf("unsafe %s args accepted: %+v", operation, args)
+			}
+		}
+	}
+	for _, operation := range []string{"shell", "container_delete", "compose_deploy", "exec"} {
+		if _, err := DecodeTaskDispatch(taskJSON(validAgent, operation, map[string]any{"container_id": id}), validAgent); err == nil {
+			t.Fatalf("unreviewed operation %s accepted", operation)
+		}
+	}
+}
+
 func TestCapabilityResultHasCorrelatedTaskID(t *testing.T) {
 	why := "socket_missing"
 	caps := Capabilities{
