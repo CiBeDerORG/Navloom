@@ -175,3 +175,9 @@ npm run test:go
 - [CI 38188149086](https://github.com/CiBeDerORG/Navloom/actions/runs/38188149086) **4/4 通过**：`m2-presence.test.ts` 使用真实浏览器 WSS 客户端模拟**TCP/WebSocket 保持连接但不自动回应 Pong**的半开页面；缩短的 sweep/Pong 超时仅在隔离测试配置中生效。Server 在有限时间回收该页面，不影响另一条仍有 Pong 的首页访问凭据页面；最后一个正常页面关闭后 activePages 归零，管理员手动 Ping API 返回 409。
 - [CI 38188177991](https://github.com/CiBeDerORG/Navloom/actions/runs/38188177991) **4/4 通过**：真实 Node Server 与两台 Go 被动 Agent 的 Linux 隔离集成脚本增加读取 `/proc/net/tcp`/`tcp6` 的 ESTABLISHED 连接计数。验证初始 0 页面两 Agent 没有已建立 TCP 连接、单个首页页面建立连接、加开管理员页面**不重复建立**、撤销 Agent A 后仅 A 的连接消失、关闭管理员后首页仍保持 B 连接、最后首页关闭后 B 的 TCP 连接也消失且空闲期间无自动重连、重新打开普通导航页后 B 可建立连接、再次关闭归零。检查的是**实际内核 TCP 状态而非 API 的 paused 文本标签**。
 - 生产默认仍为每 15 秒浏览器存在性 sweep、无 Pong 超过 45 秒回收；Agent Pong 超时 10 秒；未新增第二套 Agent 心跳。**TCP ESTABLISHED 数归零不能取代真实 NAS 环境的网络抓包/所有协议零包结论。**Web 浏览器跨端交互、实网网络抓包、证书轮换及 Codex 独立验收仍待执行；T-036～T-047 不提前勾选。
+
+### 全局自动检测模式的两页面联调（2026-10-12）
+
+- [CI 38188385381](https://github.com/CiBeDerORG/Navloom/actions/runs/38188385381) **4/4 通过**。在两台真实 Go 被动 Agent、首页访问口令导航页与管理员页面同时在线的反向 WSS 集成流程中，管理员 PATCH 将全局检测切换为 `auto` / 5000ms；首页页面和管理员页面均收到同一 `probe_settings` WS 广播，随后 Agent B 按设置产生新的 Pong 观测时间。
+- 两页面仍仅对应一条到 Agent B 的内核 TCP 连接；关闭管理员页面后普通导航页维持 WSS；关闭最后的导航页后 Agent B 的 ESTABLISHED TCP 连接归零。等待**超过整个 5 秒自动 Ping 周期**仍为 0，历史业务时间不改变，持久的 `auto` 配置不因无人在线而抹除。重新打开普通导航页按需恢复连接。
+- 本验证在隔离 Linux CI 上完成，支持**一套全局自动/手动管理、无页面不保持 Agent TCP 连接**的实现判断，但不代替真实 NAS 抓包、非 TCP 通道审计及 Codex 独立验收；任务清单保持待验收。
