@@ -54,7 +54,6 @@ func watchDockerEventsAt(ctx context.Context, socket string, notify func(Contain
 	}
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 4096), 16*1024)
-	latest := time.Time{}
 	for scanner.Scan() {
 		var event struct {
 			Type   string `json:"Type"`
@@ -77,10 +76,10 @@ func watchDockerEventsAt(ctx context.Context, socket string, notify func(Contain
 		}
 		switch event.Action {
 		case "create", "start", "stop", "die", "destroy", "rename", "pause", "unpause", "restart", "update":
-			if time.Since(latest) >= 500*time.Millisecond {
-				latest = time.Now()
-				notify(ContainerEvent{ContainerID: id, Action: event.Action})
-			}
+			// Forward every state transition, including rapid events from distinct
+			// containers. The Server debounces expensive full reconciliation per
+			// Agent; dropping events here would leave intermediate state stale.
+			notify(ContainerEvent{ContainerID: id, Action: event.Action})
 		}
 	}
 	if ctx.Err() != nil {
