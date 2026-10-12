@@ -160,3 +160,31 @@ func TestExecutePreservesFailureExitAndRejectsUnsafeRoot(t *testing.T) {
 		t.Fatal("symlinked deployment root accepted")
 	}
 }
+
+func TestExecuteRejectsSymlinkedJournalAndLock(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "outside-0600")
+	if err := os.WriteFile(target, []byte("do-not-touch"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	raw := trustedManifest("navloom-testcase-12345678")
+	id := "66666666-6666-4666-8666-666666666666"
+	for _, name := range []string{".deploy.lock", ".claims.jsonl"} {
+		t.Run(name, func(t *testing.T) {
+			root := filepath.Join(base, strings.TrimPrefix(name, "."))
+			if err := os.Mkdir(root, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := (Executor{Root: root}).Execute(context.Background(), id, raw); err == nil {
+				t.Fatal("accepted symlink as private deployment metadata")
+			}
+			original, err := os.ReadFile(target)
+			if err != nil || string(original) != "do-not-touch" {
+				t.Fatal("symlink attack changed unrelated file")
+			}
+		})
+	}
+}
