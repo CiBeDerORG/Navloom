@@ -64,6 +64,13 @@
       "when": 1760140808000,
       "tag": "0008_m2_inventory_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1760140809000,
+      "tag": "0009_m3_install_task_inputs",
+      "breakpoints": true
     }
   ]
 }
