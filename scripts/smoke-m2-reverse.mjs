@@ -119,26 +119,20 @@ async function assertZeroPagePacketCapture(ports, durationMs = 5500) {
   if (process.env.GITHUB_ACTIONS !== "true" || process.env.DOCKER_HOST) {
     throw new Error("Packet capture acceptance is restricted to the isolated CI runner");
   }
+  // Capture only the test Agent ports. Raw AF_PACKET does not depend on tcpdump
+  // being installed on the GitHub runner, and the test PCAP is deleted at exit.
   const pcap = join(temp, "m2-zero-page.pcap");
-  const filter = "tcp and (port " + ports.join(" or port ") + ")";
-  const tcpdump = spawn("sudo", ["-n", "tcpdump", "-i", "any", "-nn", "-s", "128",
-    "-w", pcap, filter], { stdio: ["ignore", "ignore", "pipe"] });
-  let errors = "";
-  tcpdump.stderr.on("data", (buf) => { errors += String(buf).slice(-1000); });
-  try {
-    await until(async () => {
-      try { return readFileSync(pcap).length >= 24; }
-      catch { return false; }
-    }, 10_000);
-    await delay(durationMs);
-  } finally {
-    await stop(tcpdump);
-  }
-  const captured = execFileSync("tcpdump", ["-nn", "-r", pcap], {
-    encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
-  assert.equal(captured, "", "zero authenticated pages must produce exactly 0 captured Agent TCP packets: " + errors);
-  console.log("M2 isolated packet capture PASS: zero authenticated pages, zero Agent TCP packets for " + durationMs + " ms");
+  const result = spawnSync("sudo", ["-n", "python3", "scripts/m2-packet-capture.py",
+    String(durationMs / 1000), pcap, ...ports.map(String)], {
+    encoding: "utf8", timeout: durationMs + 6000, maxBuffer: 200_000,
+  });
+  assert.equal(result.status, 0, "isolated packet capture failed: " +
+    String(result.stderr ?? "").slice(-1200));
+  const report = JSON.parse(String(result.stdout).trim());
+  assert.equal(report.agent_tcp_packets, 0,
+    "zero authenticated pages must produce zero Agent TCP packets");
+  console.log("M2 isolated packet capture PASS: zero authenticated pages, zero Agent TCP packets for " +
+    durationMs + " ms");
 }
 
 async function unusedPort(host) {
