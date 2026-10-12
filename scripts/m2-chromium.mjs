@@ -12,6 +12,7 @@ export async function verifyChromiumPages({ temp, base, children, settings, port
   const vite = spawn("npm", ["run", "dev", "-w", "@navloom/web", "--", "--host", "127.0.0.1"], {
     env: { ...process.env, NAVLOOM_API_PROXY_TARGET: base },
     stdio: ["ignore", "ignore", "pipe"],
+    detached: true, // npm spawns Vite/esbuild; terminate the entire process group.
   });
   children.push(vite);
   let viteErrors = "";
@@ -126,6 +127,11 @@ export async function verifyChromiumPages({ temp, base, children, settings, port
   } finally {
     cdp.close();
     await stop(chrome);
+    if (vite.pid && process.platform !== "win32") {
+      // Killing npm alone leaves its Vite/esbuild grandchildren holding the
+      // stderr pipe open and hangs the whole CI job after all tests PASS.
+      try { process.kill(-vite.pid, "SIGTERM"); } catch { /* already exited */ }
+    }
     await stop(vite);
   }
 }
