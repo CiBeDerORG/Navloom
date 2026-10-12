@@ -79,9 +79,33 @@ export class AgentHub {
       return;
     }
     for (const agentId of this.sessions.keys()) this.refreshInventoryIfConnected(agentId);
+    this.startInventoryTimer();
+  }
+
+  inventorySettings(): { intervalMs: number; updatedAt: number } {
+    const row = this.db.sqlite.prepare(
+      "SELECT interval_ms AS intervalMs, updated_at AS updatedAt FROM agent_inventory_settings WHERE id = 'global'",
+    ).get() as { intervalMs: number; updatedAt: number } | undefined;
+    return row ?? { intervalMs: 120_000, updatedAt: 0 };
+  }
+
+  updateInventorySettings(intervalMs: number): { intervalMs: number; updatedAt: number } {
+    const now = Date.now();
+    this.db.sqlite.prepare(
+      "INSERT INTO agent_inventory_settings (id, interval_ms, updated_at) VALUES ('global', ?, ?) " +
+      "ON CONFLICT(id) DO UPDATE SET interval_ms = excluded.interval_ms, updated_at = excluded.updated_at",
+    ).run(intervalMs, now);
+    if (this.inventoryTimer) clearInterval(this.inventoryTimer);
+    this.inventoryTimer = null;
+    if (this.inventorySync) this.startInventoryTimer();
+    return this.inventorySettings();
+  }
+
+  private startInventoryTimer(): void {
+    if (!this.inventorySync) return;
     this.inventoryTimer = setInterval(() => {
       for (const agentId of this.sessions.keys()) this.refreshInventoryIfConnected(agentId);
-    }, 120_000);
+    }, this.inventorySettings().intervalMs);
     this.inventoryTimer.unref();
   }
 
