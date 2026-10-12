@@ -56,6 +56,7 @@ go run ./cmd/navloom-agent -config ./agent-config.json
 - 正常启动在指定 IP:端口被动监听 TLS 1.3 WSS `/agent`；只接受配对时固定的 Server 客户端证书，最多一个已认证连接。没有页面时 Agent 不主动发出任何请求或心跳。
 - Server 有至少一个已登录导航页/后台页面时按需拨号；多个浏览器共享一条 Agent 连接；管理员可切换自动/手动 Ping/Pong 检测，手动「检测连接」不触发 Docker 任务。
 - Agent 仅执行白名单中的只读 `capability_probe`；容器发现、启停、Compose 部署仍未开放。连接成功不代表 Docker 可用。
+- **任务防重放基础**：每条已认证的 Agent WSS 会话会记录本会话接受的 `task_id` 与 `message_id`，同一会话重放任一 ID 会被拒绝并以策略违规关闭连接；每会话最多接受 1024 个任务以限制内存。该去重记录**不是持久化的**，Agent 断线或重启会清空，因此目前仍只开放只读能力探测。未来 T-055 在启用任何 Docker 启停/Compose 变更命令前，必须增加跨会话/进程重启的持久执行幂等机制，禁止把本会话去重当作副作用操作安全保证。
 - `-check` 只检查配置的 Server TCP/TLS 可达性，不代表反向 Agent WSS 握手成功。仅显式设置 `allow_insecure_dev: true` 且 Server URL 为回环 `ws://` 时允许不加密配对开发。
 
 构建：`go test ./...`、`./scripts/build-linux.sh`。配置字段参考 [config.example.json](./config.example.json)，新架构与未完成项见 [M2 实施记录](../planning/M2-IMPLEMENTATION.md)。
