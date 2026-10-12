@@ -12,7 +12,7 @@ const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 /** A protocol peer which sends a valid hello but never responds to Ping. */
 class SilentAgent extends EventEmitter {
-  readyState = WebSocket.OPEN;
+  readyState: number = WebSocket.OPEN;
   pings = 0;
   closedWith: number | undefined;
   ping(): void { this.pings++; }
