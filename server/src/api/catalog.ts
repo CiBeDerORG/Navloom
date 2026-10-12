@@ -1,4 +1,7 @@
 import type { FastifyInstance } from "fastify";
+import type { DatabaseConnection } from "../db/client.js";
+import type { AgentHub } from "../realtime/agent-hub.js";
+import { preflightInstall } from "../install/preflight.js";
 import { z } from "zod";
 import { ApiFailure, type Access } from "../security/access.js";
 import { listTemplateSummaries, loadBuiltinCatalog } from "../catalog/registry.js";
@@ -8,8 +11,29 @@ import { renderTrustedCompose } from "../catalog/template.js";
  * v1 catalog is read-only and ships with Navloom. It never downloads or
  * executes third-party templates. Installing is a separate, future M3 flow.
  */
-export function registerCatalog(app: FastifyInstance, access: Access): void {
+export function registerCatalog(app: FastifyInstance, access: Access, db: DatabaseConnection, hub: AgentHub): void {
   const catalog = loadBuiltinCatalog();
+  app.post("/api/v1/admin/install/preflight", async (request) => {
+    access.requireAdmin(request);
+    const input = z.object({
+      agentId: z.string().uuid(),
+      templateId: z.string().regex(/^[a-z][a-z0-9-]{1,47}$/),
+      templateVersion: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+$/),
+      parameters: z.record(z.unknown()),
+      navigation: z.unknown(),
+    }).strict().safeParse(request.body);
+    if (!input.success) throw new ApiFailure(400, "INVALID_INPUT", "安装预检参数无效");
+    const template = catalog.get(input.data.templateId);
+    if (!template || template.version !== input.data.templateVersion) {
+      throw new ApiFailure(409, "TEMPLATE_VERSION_MISMATCH", "安装模板不存在或版本已改变，请刷新目录");
+    }
+    return preflightInstall(db, (id) => hub.isOnline(id), {
+      agentId: input.data.agentId, template,
+      parameters: input.data.parameters,
+      navigation: input.data.navigation,
+    });
+  });
+
   app.get("/api/v1/admin/catalog/templates", async (request) => {
     access.requireAdmin(request);
     const input = z.object({
