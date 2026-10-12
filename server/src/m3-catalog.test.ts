@@ -73,6 +73,15 @@ test("T-061/T-062/T-063: invalid params and dangerous Compose overrides are reje
   assert.equal(TemplateSchema.safeParse(invalid).success, false);
   const extra = { ...nginx, dockerSocket: "/var/run/docker.sock" };
   assert.equal(TemplateSchema.safeParse(extra).success, false);
+  assert.equal(TemplateSchema.safeParse({
+    ...nginx, navigation: { title: "unsafe", url: "javascript:alert(1)" },
+  }).success, false, "non-HTTP navigation URL must be rejected");
+  assert.equal(TemplateSchema.safeParse({
+    ...nginx, navigation: { title: "unsafe", url: "https://user:secret@example.com/" },
+  }).success, false, "URLs containing embedded credentials must be rejected");
+  const collided = structuredClone(nginx);
+  collided.compose.services[0]!.ports.push(structuredClone(collided.compose.services[0]!.ports[0]!));
+  assert.throws(() => renderTrustedCompose(collided, {}, "abcd1234"), /Conflicting host port/);
   const tampered = structuredClone(postgres);
   tampered.parameters.properties.db_password!.default = "dangerous-secret-in-template";
   assert.equal(TemplateSchema.safeParse(tampered).success, false, "secret defaults must never ship with templates");
