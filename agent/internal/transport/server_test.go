@@ -284,8 +284,8 @@ func TestPassiveTLSRejectsCertificateWithWrongPurpose(t *testing.T) {
 
 func TestPassiveAgentRejectsReplayedTasksAndMessages(t *testing.T) {
 	for _, tc := range []struct {
-		name           string
-		replayTaskID   bool
+		name            string
+		replayTaskID    bool
 		replayMessageID bool
 	}{
 		{name: "same task ID with new message ID", replayTaskID: true},
@@ -294,12 +294,12 @@ func TestPassiveAgentRejectsReplayedTasksAndMessages(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			cfg := config.Config{
-				ServerURL: "wss://navloom.example.com",
-				AgentName: "nas",
+				ServerURL:    "wss://navloom.example.com",
+				AgentName:    "nas",
 				EndpointHost: "10.10.20.30",
 				EndpointPort: 9443,
-				TLSCertFile: filepath.Join(dir, "agent.crt"),
-				TLSKeyFile: filepath.Join(dir, "agent.key"),
+				TLSCertFile:  filepath.Join(dir, "agent.crt"),
+				TLSKeyFile:   filepath.Join(dir, "agent.key"),
 			}
 			if err := pairing.GenerateAgentTLS(cfg); err != nil {
 				t.Fatal(err)
@@ -345,12 +345,12 @@ func TestPassiveAgentRejectsReplayedTasksAndMessages(t *testing.T) {
 			}
 			first := map[string]any{
 				"protocol_version": protocol.Version,
-				"message_id": "a57be91b-cbf5-4c84-93cb-b07c126bb18a",
-				"agent_id": testAgentID,
-				"task_id": "de57a2f3-38da-4cb7-a676-81b3950b9701",
-				"sent_at": time.Now().UTC().Format(time.RFC3339),
-				"type": "task_dispatch",
-				"payload": map[string]any{"operation": "capability_probe", "arguments": map[string]any{}},
+				"message_id":       "a57be91b-cbf5-4c84-93cb-b07c126bb18a",
+				"agent_id":         testAgentID,
+				"task_id":          "de57a2f3-38da-4cb7-a676-81b3950b9701",
+				"sent_at":          time.Now().UTC().Format(time.RFC3339),
+				"type":             "task_dispatch",
+				"payload":          map[string]any{"operation": "capability_probe", "arguments": map[string]any{}},
 			}
 			if err := conn.WriteJSON(first); err != nil {
 				t.Fatal(err)
