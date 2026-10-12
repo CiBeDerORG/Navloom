@@ -1,7 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
+import { sealInstallParameters } from "./secrets.js";
+import type { InstallNavigationDraft } from "./preflight.js";
 import type { DatabaseConnection } from "../db/client.js";
 
-export type InstallStatus = "pending" | "running" | "unknown" | "succeeded" | "failed";
+export type InstallStatus = "prepared" | "pending" | "running" | "unknown" | "succeeded" | "failed";
 type InstallRow = {
   id: string; agentId: string; templateId: string; templateVersion: string;
   idempotencyKey: string; status: InstallStatus; exitCode: number | null;
@@ -59,6 +61,60 @@ export class InstallTaskStore {
     })();
   }
 
+  /**
+   * Saves a preflight-approved intent, without executing or dispatching it.
+   * The runtime MUST provide a persistent external 32-byte encryption key;
+   * duplicate requests compare a keyed digest, not plaintext or unkeyed SHA.
+   */
+  reservePrepared(input: NewInstallTask & {
+    parameters: Record<string, string | number | boolean>;
+    navigation: InstallNavigationDraft;
+  }, key: Buffer): { id: string; created: boolean; status: "prepared" } {
+    if (key.length !== 32) throw new InstallStateError("Install vault key unavailable");
+    if (!/^[0-9a-f-]{36}$/i.test(input.agentId) ||
+        !/^[a-z][a-z0-9-]{1,47}$/.test(input.templateId) ||
+        !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(input.templateVersion) ||
+        !/^[A-Za-z0-9_-]{16,128}$/.test(input.idempotencyKey)) {
+      throw new InstallStateError("Invalid install task identity");
+    }
+    const stableParameters = Object.fromEntries(Object.entries(input.parameters)
+      .sort(([a], [b]) => a.localeCompare(b)));
+    const navigation = JSON.stringify(input.navigation);
+    const digest = createHmac("sha256", key).update(JSON.stringify([
+      input.agentId, input.templateId, input.templateVersion,
+      stableParameters, JSON.parse(navigation) as unknown,
+    ])).digest("hex");
+    return this.db.sqlite.transaction(() => {
+      const existing = this.db.sqlite.prepare(select + " WHERE idempotency_key = ?")
+        .get(input.idempotencyKey) as InstallRow | undefined;
+      if (existing) {
+        const old = this.db.sqlite.prepare("SELECT request_digest AS digest FROM install_task_inputs WHERE task_id = ?")
+          .get(existing.id) as { digest: string } | undefined;
+        if (!old || old.digest !== digest || existing.status !== "prepared") {
+          throw new InstallStateError("Idempotency key conflicts with an existing installation");
+        }
+        return { id: existing.id, created: false, status: "prepared" as const };
+      }
+      if (!this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL")
+        .get(input.agentId)) {
+        throw new InstallStateError("Agent not found or revoked");
+      }
+      const id = randomUUID(), now = Date.now();
+      const ciphertext = sealInstallParameters(stableParameters, key, id,
+        input.agentId, input.templateId, input.templateVersion);
+      this.db.sqlite.prepare(
+        "INSERT INTO install_tasks (id, agent_id, template_id, template_version, idempotency_key, " +
+        "status, parameters_ref, navigation_draft_json, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, 'prepared', ?, ?, ?, ?)",
+      ).run(id, input.agentId, input.templateId, input.templateVersion,
+        input.idempotencyKey, "install_task_inputs:" + id, navigation, now, now);
+      this.db.sqlite.prepare(
+        "INSERT INTO install_task_inputs (task_id, request_digest, parameters_ciphertext, created_at) VALUES (?, ?, ?, ?)",
+      ).run(id, digest, ciphertext, now);
+      return { id, created: true, status: "prepared" as const };
+    })();
+  }
+
   transition(id: string, target: InstallStatus, exitCode: number | null = null): InstallRow {
     return this.db.sqlite.transaction(() => {
       const row = this.get(id);
@@ -67,6 +123,7 @@ export class InstallTaskStore {
         return row; // identical Agent result replay: no second state transition
       }
       const possible: Record<InstallStatus, InstallStatus[]> = {
+        prepared: [], // never dispatch from a draft until a reviewed, explicit activation API exists
         pending: ["running", "unknown"],
         running: ["succeeded", "failed", "unknown"],
         unknown: ["succeeded", "failed"],
