@@ -136,7 +136,7 @@ func DecodeTaskDispatch(data []byte, expectedAgentID string) (Message, error) {
 		var args struct {
 			ContainerID string `json:"container_id"`
 		}
-		if err := strictJSON(payload.Arguments, &args); err != nil || !containerID(args.ContainerID) {
+		if err := strictJSON(payload.Arguments, &args); err != nil || !containerIDValid(args.ContainerID) {
 			return msg, errors.New("invalid container task arguments")
 		}
 	default:
@@ -261,17 +261,32 @@ func NewTaskFailure(agentID, taskID string, detail string) (Message, error) {
 	return msg, nil
 }
 
-func NewInventoryChanged(agentID string) (Message, error) {
+func NewInventoryChanged(agentID, containerID, action string) (Message, error) {
+	if !containerIDValid(containerID) {
+		return Message{}, errors.New("invalid inventory event container ID")
+	}
+	switch action {
+	case "create", "start", "stop", "die", "destroy", "rename", "pause", "unpause", "restart", "update":
+	default:
+		return Message{}, errors.New("invalid inventory event action")
+	}
 	msg, err := newEnvelope(agentID)
 	if err != nil {
 		return Message{}, err
 	}
-	msg.Type = "inventory_changed"
-	msg.Payload = json.RawMessage(`{"resource":"containers"}`)
+	payload, err := json.Marshal(struct {
+		Resource    string `json:"resource"`
+		ContainerID string `json:"container_id"`
+		Action      string `json:"action"`
+	}{Resource: "containers", ContainerID: containerID, Action: action})
+	if err != nil {
+		return Message{}, err
+	}
+	msg.Type, msg.Payload = "inventory_changed", payload
 	return msg, nil
 }
 
-func containerID(value string) bool {
+func containerIDValid(value string) bool {
 	if len(value) < 12 || len(value) > 64 {
 		return false
 	}
