@@ -318,18 +318,18 @@ npm run db:migrate
 | T-045 | BLOCKED_INVENTORY | 已提交安全子集，按 D6 独立回归；Docker 操作待后续 | — |
 | T-046 | NOT_RUN | 已提交安全子集，按 D7 独立回归；Docker 操作待后续 | — |
 | T-047 | BLOCKED_INVENTORY | 已提交安全子集，按 D8 独立回归；Docker 操作待后续 | — |
-| T-048 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
-| T-049 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
-| T-050 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
-| T-051 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
-| T-052 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
-| T-053 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
-| T-054 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
-| T-055 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
-| T-056 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
-| T-057 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
-| T-058 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
-| T-059 | NOT_IMPLEMENTED | 等待 Docker 容器池/实例实现 | — |
+| T-048 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
+| T-049 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
+| T-050 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
+| T-051 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
+| T-052 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
+| T-053 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
+| T-054 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
+| T-055 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
+| T-056 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
+| T-057 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
+| T-058 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
+| T-059 | NOT_RUN | 主干代码已提交；独立与真实 Docker/NAS 验收尚未执行 | — |
 
 **最终回归报告必须包含**：测试日期与 commit SHA、运行环境、自动化命令及退出码、浏览器/视口覆盖、M1 A 组 9 项逐项结论、M1 B 组 5 项阻塞说明、M2 C 组 6 项逐项子测试与完整验收差距、D 组 8 项已提交代码待回归与 12 项未实现状态、失败复现步骤和修复、未测风险、CI 结果，以及 M1/M2 各自是否达到阶段性门槛。Codex 每轮只更新实际执行过的行，并保留未执行任务的真实状态。
 
@@ -409,4 +409,6 @@ npm run db:migrate
 
 **T-044/T-045/T-047 Agent 任务重放与旧会话隔离（2026-10-12；自动化证据，不是 Codex PASS）**：[CI 38189254603](https://github.com/CiBeDerORG/Navloom/actions/runs/38189254603) **4/4 作业通过**。Go Agent 的实际双向 TLS WebSocket 新测试：同一条 WSS 内首次白名单能力探测返回结果；使用同一 `task_id` 但不同 `message_id` 重放，或用同一 `message_id` 而换新 `task_id`，均应返回 WSS 1008 策略违规关闭且不得二次执行。每会话上限 1,024 条任务以限制去重集合内存。Server Node 追加测试：旧 Agent WSS 被新连接替代后，旧未决任务转 `unknown`，其迟到任务结果、Pong 和 close callback 不能改变新会话状态。**会话去重不是跨 WSS 重连/Agent 进程重启的持久化幂等保证；T-055 的 Docker 副作用操作须待单独实现可靠执行记录后才能开放。**真实 NAS、抓包、浏览器多端与 Codex 独立 E 组验收依旧 `NOT_RUN`，不得凭此项 CI 勾选正式任务。
 
-**M2 T-048～T-059 代码交付与独立验收边界（2026-10-12，NOT_RUN）**：新增只读 Docker `all=true` 全量扫描/分段 mTLS WSS/单事务快照、仅页面在线的 Docker 事件通知及可配置自动全量对账、容器池筛选/详情/UI/历史时效标志、管理员确认的容器启停/重启与持久幂等任务键、Agent 私有 fsync Journal（跨重连及 Agent 重启禁止相同任务重新执行）、实例目录/Compose 稳定关联、有限日志与基础秘密遮盖、手动填写链接生成导航卡片（不操作 Docker）。核心隔离测试：`agent/internal/probe/inventory_test.go`、`events_test.go`、`control_test.go`、`agent/internal/transport/journal_test.go`、`server/src/m2-inventory.test.ts`、`m2-container-operations.test.ts`；CI 以最新 main 工作流结果为准。**不可误标为 PASS：当前使用 Docker Unix HTTP API 而非 SDK，事件触发全量对账而非直接逐容器增量更新；没有实际 NAS 抓包、真实 Docker 启停/重建/事件性能验收、证书轮换与 Codex 独立回归。E 组和 T-048～T-059 保留 NOT_RUN，用户后续提供明确受控环境与授权才能执行真实副作用测试。**
+**M2 T-048～T-059 代码交付与独立验收边界（2026-10-12，NOT_RUN）**：新增只读 Docker `all=true` 全量扫描/分段 mTLS WSS/单事务快照、仅页面在线的 Docker 事件通知及可配置自动全量对账、容器池筛选/详情/UI/历史时效标志、管理员确认的容器启停/重启与持久幂等任务键、Agent 私有 fsync Journal（跨重连及 Agent 重启禁止相同任务重新执行）、实例目录/Compose 稳定关联、有限日志与基础秘密遮盖、手动填写链接生成导航卡片（不操作 Docker）。核心隔离测试：`agent/internal/probe/inventory_test.go`、`events_test.go`、`control_test.go`、`agent/internal/transport/journal_test.go`、`server/src/m2-inventory.test.ts`、`m2-container-operations.test.ts`；CI 以最新 main 工作流结果为准。**不可误标为 PASS：当前使用 Docker Unix HTTP API 而非 SDK，已知容器事件先安全增量更新，再防抖触发全量对账；没有实际 NAS 抓包、真实 Docker 启停/重建/事件性能验收、证书轮换与 Codex 独立回归。E 组和 T-048～T-059 保留 NOT_RUN，用户后续提供明确受控环境与授权才能执行真实副作用测试。**
+
+**2026-10-12 M2 验收基线更新（不等同独立 PASS）**：截至 `84ea1a5`，T-048～T-059 已有主干代码，不再记为 `NOT_IMPLEMENTED`；统一结果表改为 `NOT_RUN`，任务勾选仍保留。修复 Docker 事件模拟流错误换行符后，[CI 38198150380](https://github.com/CiBeDerORG/Navloom/actions/runs/38198150380) 的 Go Agent、Web/Server/SQLite、Compose 启动及双 Agent mTLS WSS **4/4 成功**。新增管理员密码轮换/首页单页维持的回归测试见 `server/src/m2-presence.test.ts`（提交 `c5b43fd`）；其结果以对应 GitHub Actions 结论为准。独立浏览器多端、包级零流量、真实 NAS/Docker 和容器重建测试未执行，不能将这些场景写为通过。
