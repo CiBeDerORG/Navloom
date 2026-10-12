@@ -101,6 +101,27 @@ export class AgentHub {
     catch { /* disconnected/revoked peers are never polled */ }
   }
 
+  requestContainerTask(
+    agentId: string, operation: "container_start" | "container_stop" | "container_restart" | "container_logs",
+    containerId: string, idempotencyKey?: string,
+  ): string {
+    const session = this.sessions.get(agentId);
+    if (!this.inventorySync || !session || !session.helloReceived || !this.isOnline(agentId)) {
+      throw new ApiFailure(409, "AGENT_OFFLINE", "仅已登录页面在线、且 Agent 已认证连接时允许容器任务");
+    }
+    if (!this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId)) {
+      throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在或已撤销");
+    }
+    try {
+      return this.tasks.dispatchContainerTask(agentId, operation, containerId, session.socket, idempotencyKey);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Idempotency key")) {
+        throw new ApiFailure(409, "IDEMPOTENCY_CONFLICT", "幂等键已被其他操作使用");
+      }
+      throw error;
+    }
+  }
+
   requestInventoryRefresh(agentId: string): string {
     const session = this.sessions.get(agentId);
     if (!session || !session.helloReceived || !this.isOnline(agentId)) {
@@ -229,7 +250,7 @@ export class AgentHub {
     if (!parsed.success) { this.reject(session, 1008, "invalid protocol message"); return; }
     const message = parsed.data;
     if (message.agent_id !== session.agentId ||
-        !["hello", "task_result", "inventory_chunk", "inventory_changed"].includes(message.type) ||
+        !["hello", "task_result", "inventory_chunk", "inventory_changed", "task_log"].includes(message.type) ||
         (message.type === "hello" && session.helloReceived) ||
         (message.type !== "hello" && !session.helloReceived) ||
         session.seenMessages.has(message.message_id)) {
@@ -254,6 +275,12 @@ export class AgentHub {
       // No page means no Agent task, no DB heartbeat, and no fresh reconnect.
       if (!this.inventorySync) return;
       this.scheduleInventoryChange(session.agentId);
+    } else if (message.type === "task_log") {
+      if (!this.tasks.acceptTaskLog(session.agentId, message)) {
+        this.reject(session, 1008, "task log rejected");
+        return;
+      }
+      this.touch(session);
     } else if (message.type === "inventory_chunk") {
       if (!this.tasks.acceptInventoryChunk(session.agentId, message)) {
         this.reject(session, 1008, "inventory chunk rejected");
