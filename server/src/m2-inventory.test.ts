@@ -68,14 +68,14 @@ test("T-048/T-049/T-051: streamed snapshot persists atomically, isolates Agents 
   assert.equal(tasks.acceptResult(a, envelope(a, taskId, "task_result", {
     success: true, exit_code: null, inventory_count: 2, inventory_chunks: 1,
   }) as Result), true);
-  const rows = db.sqlite.prepare("SELECT name, state, compose_project AS project FROM container_inventory ORDER BY name").all()
-    as Array<{ name: string; state: string; project: string }>;
+  const rows = db.sqlite.prepare("SELECT name, state, compose_project AS project FROM container_inventory ORDER BY name").all() as
+    Array<{ name: string; state: string; project: string }>;
   assert.deepEqual(rows, [
     { name: "old-stopped", state: "exited", project: "website" },
     { name: "running", state: "running", project: "website" },
   ]);
-  assert.equal((db.sqlite.prepare("SELECT container_count AS n FROM agent_inventory_snapshots WHERE agent_id = ?").get(a)
-    as { n: number }).n, 2);
+  const snapshot = db.sqlite.prepare("SELECT container_count AS n FROM agent_inventory_snapshots WHERE agent_id = ?").get(a) as { n: number };
+  assert.equal(snapshot.n, 2);
   assert.equal((db.sqlite.prepare("SELECT COUNT(*) AS n FROM container_inventory WHERE agent_id = ?").get(b) as { n: number }).n, 0);
 
   const refreshed = tasks.dispatchInventoryRefresh(a, net.socket);
