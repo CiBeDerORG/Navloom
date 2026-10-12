@@ -1,0 +1,32 @@
+apiVersion: navloom/v1
+id: nginx
+version: 1.0.0
+title: Nginx 静态网页
+description: 单容器 Nginx 服务。默认仅绑定目标设备的 127.0.0.1。
+category: 网络服务
+icon: "🌐"
+architectures: [amd64, arm64]
+parameters:
+  type: object
+  additionalProperties: false
+  required: [http_port]
+  properties:
+    http_port:
+      type: integer
+      title: 本地 HTTP 端口
+      description: 绑定到 Agent 设备的 127.0.0.1，不自动暴露公网
+      default: 18080
+      minimum: 1024
+      maximum: 65535
+      format: port
+compose:
+  services:
+    - name: web
+      image: nginx:1.27.5-alpine
+      ports:
+        - container: 80
+          hostParameter: http_port
+          protocol: tcp
+navigation:
+  title: Nginx
+  icon: "🌐"
