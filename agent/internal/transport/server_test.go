@@ -126,17 +126,23 @@ func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 	wrongVersion := headers.Clone()
 	wrongVersion.Set("X-Navloom-Protocol-Version", "1")
 	if conn, response, err := makeDialer([]tls.Certificate{client}).Dial(url, wrongVersion); err == nil || response == nil || response.StatusCode != http.StatusUnauthorized {
-		if conn != nil { conn.Close() }
+		if conn != nil {
+			conn.Close()
+		}
 		t.Fatalf("obsolete v1 protocol was accepted: %v", err)
 	}
 	withOrigin := headers.Clone()
 	withOrigin.Set("Origin", "https://untrusted-browser.example")
 	if conn, response, err := makeDialer([]tls.Certificate{client}).Dial(url, withOrigin); err == nil || response == nil || response.StatusCode != http.StatusForbidden {
-		if conn != nil { conn.Close() }
+		if conn != nil {
+			conn.Close()
+		}
 		t.Fatalf("browser-initiated Agent WSS was accepted: %v", err)
 	}
 	oldTLS := &websocket.Dialer{TLSClientConfig: &tls.Config{
-		MaxVersion: tls.VersionTLS12, RootCAs: roots, ServerName: cfg.EndpointHost,
+		MaxVersion:   tls.VersionTLS12,
+		RootCAs:      roots,
+		ServerName:   cfg.EndpointHost,
 		Certificates: []tls.Certificate{client},
 	}}
 	if conn, _, err := oldTLS.Dial(url, headers); err == nil {
@@ -220,12 +226,16 @@ func TestPassiveAgentMutualTLSAndOnlyOnDemandTraffic(t *testing.T) {
 func TestPassiveTLSRejectsCertificateWithWrongPurpose(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
-		ServerURL: "wss://navloom.example.com",
-		AgentName: "nas", EndpointHost: "10.10.20.30", EndpointPort: 9443,
-		TLSCertFile: filepath.Join(dir, "agent.crt"),
-		TLSKeyFile: filepath.Join(dir, "agent.key"),
+		ServerURL:    "wss://navloom.example.com",
+		AgentName:    "nas",
+		EndpointHost: "10.10.20.30",
+		EndpointPort: 9443,
+		TLSCertFile:  filepath.Join(dir, "agent.crt"),
+		TLSKeyFile:   filepath.Join(dir, "agent.key"),
 	}
-	if err := pairing.GenerateAgentTLS(cfg); err != nil { t.Fatal(err) }
+	if err := pairing.GenerateAgentTLS(cfg); err != nil {
+		t.Fatal(err)
+	}
 	_, serverClientPEM := clientTLSCert(t)
 	identity := pairing.Identity{AgentID: testAgentID, ServerClientCertificatePEM: serverClientPEM}
 	if _, err := passiveTLSConfig(cfg, identity); err != nil {
@@ -242,18 +252,30 @@ func TestPassiveTLSRejectsCertificateWithWrongPurpose(t *testing.T) {
 	// must not be eligible to serve private WSS.
 	wrongAgent, wrongAgentPEM := testTLSCert(t, cfg.EndpointHost, x509.ExtKeyUsageClientAuth, x509.KeyUsageDigitalSignature)
 	keyDER, err := x509.MarshalPKCS8PrivateKey(wrongAgent.PrivateKey)
-	if err != nil { t.Fatal(err) }
-	if err := os.WriteFile(cfg.TLSCertFile, []byte(wrongAgentPEM), 0644); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(cfg.TLSKeyFile, pem.EncodeToMemory(&pem.Block{Type:"PRIVATE KEY", Bytes:keyDER}), 0600); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.TLSCertFile, []byte(wrongAgentPEM), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.TLSKeyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := passiveTLSConfig(cfg, identity); err == nil {
 		t.Fatal("Agent clientAuth-only certificate was accepted as a WSS server")
 	}
 	// A certificate with the right EKU but no signing KeyUsage is also invalid.
 	wrongKeyUsage, wrongKeyUsagePEM := testTLSCert(t, cfg.EndpointHost, x509.ExtKeyUsageServerAuth, x509.KeyUsageKeyEncipherment)
 	keyDER, err = x509.MarshalPKCS8PrivateKey(wrongKeyUsage.PrivateKey)
-	if err != nil { t.Fatal(err) }
-	if err := os.WriteFile(cfg.TLSCertFile, []byte(wrongKeyUsagePEM), 0644); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(cfg.TLSKeyFile, pem.EncodeToMemory(&pem.Block{Type:"PRIVATE KEY", Bytes:keyDER}), 0600); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.TLSCertFile, []byte(wrongKeyUsagePEM), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.TLSKeyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := passiveTLSConfig(cfg, identity); err == nil {
 		t.Fatal("non-signing TLS certificate was accepted")
 	}
