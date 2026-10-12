@@ -60,7 +60,7 @@ func watchDockerEventsAt(ctx context.Context, socket string, notify func(Contain
 			Type   string `json:"Type"`
 			Action string `json:"Action"`
 			ID     string `json:"id"`
-			Actor struct {
+			Actor  struct {
 				ID string `json:"ID"`
 			} `json:"Actor"`
 		}
@@ -68,9 +68,13 @@ func watchDockerEventsAt(ctx context.Context, socket string, notify func(Contain
 			continue
 		}
 		id := event.Actor.ID
-		if id == "" { id = event.ID }
+		if id == "" {
+			id = event.ID
+		}
 		id = strings.ToLower(id)
-		if !isHexID(id) { continue }
+		if !isHexID(id) {
+			continue
+		}
 		switch event.Action {
 		case "create", "start", "stop", "die", "destroy", "rename", "pause", "unpause", "restart", "update":
 			if time.Since(latest) >= 500*time.Millisecond {
