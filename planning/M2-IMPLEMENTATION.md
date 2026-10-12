@@ -181,3 +181,9 @@ npm run test:go
 - [CI 38188385381](https://github.com/CiBeDerORG/Navloom/actions/runs/38188385381) **4/4 通过**。在两台真实 Go 被动 Agent、首页访问口令导航页与管理员页面同时在线的反向 WSS 集成流程中，管理员 PATCH 将全局检测切换为 `auto` / 5000ms；首页页面和管理员页面均收到同一 `probe_settings` WS 广播，随后 Agent B 按设置产生新的 Pong 观测时间。
 - 两页面仍仅对应一条到 Agent B 的内核 TCP 连接；关闭管理员页面后普通导航页维持 WSS；关闭最后的导航页后 Agent B 的 ESTABLISHED TCP 连接归零。等待**超过整个 5 秒自动 Ping 周期**仍为 0，历史业务时间不改变，持久的 `auto` 配置不因无人在线而抹除。重新打开普通导航页按需恢复连接。
 - 本验证在隔离 Linux CI 上完成，支持**一套全局自动/手动管理、无页面不保持 Agent TCP 连接**的实现判断，但不代替真实 NAS 抓包、非 TCP 通道审计及 Codex 独立验收；任务清单保持待验收。
+
+## T-036/T-038/T-047 TLS 目的约束与降级拒绝（2026-10-12）
+
+- Go 被动 Agent 在启动时显式校验自己持有的 TLS 证书具备 `serverAuth` EKU、受配置的私网 IP SAN、非 CA、有效期和符合 TLS 签名的 KeyUsage；对配对时固定信任的 Server 客户端公开证书检查 `clientAuth` EKU、非 CA、有效期及签名用途。符合 X.509 规范：**KeyUsage 扩展缺省允许**，但若明确存在且禁止数字签名则拒绝；原 CI 中不包含 KeyUsage 扩展的 OpenSSL Server 客户端证书可继续工作。
+- 扩充 Go 被动 mTLS 测试：合法 pinned 客户端证书对比缺失/伪造证书、旧 v1 协议头、浏览器 Origin、TLS 1.2 降级均被拒绝；有效证书可完成 WSS 和既有 Ping/Pong、只读任务。独立测试刻意为 Agent 签发含正确 IP SAN 却只有 `clientAuth` 的证书，以及有 `serverAuth` 却明确禁止签名的证书，均要求在启动前拒绝。Server pinned 客户端证书如果只有 `serverAuth` 同样拒绝。
+- 相关改动：`agent/internal/transport/server.go` 和 `server_test.go`。这些为隔离 CI 安全测试，不涉及真实 NAS/运行中 Docker。需以对应 GitHub CI 成功结果作为自动化证据；Codex 独立验收、实网证书轮换与网络包级零通信仍为 `NOT_RUN`。
