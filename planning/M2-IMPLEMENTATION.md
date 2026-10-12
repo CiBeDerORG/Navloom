@@ -187,3 +187,10 @@ npm run test:go
 - Go 被动 Agent 在启动时显式校验自己持有的 TLS 证书具备 `serverAuth` EKU、受配置的私网 IP SAN、非 CA、有效期和符合 TLS 签名的 KeyUsage；对配对时固定信任的 Server 客户端公开证书检查 `clientAuth` EKU、非 CA、有效期及签名用途。符合 X.509 规范：**KeyUsage 扩展缺省允许**，但若明确存在且禁止数字签名则拒绝；原 CI 中不包含 KeyUsage 扩展的 OpenSSL Server 客户端证书可继续工作。
 - 扩充 Go 被动 mTLS 测试：合法 pinned 客户端证书对比缺失/伪造证书、旧 v1 协议头、浏览器 Origin、TLS 1.2 降级均被拒绝；有效证书可完成 WSS 和既有 Ping/Pong、只读任务。独立测试刻意为 Agent 签发含正确 IP SAN 却只有 `clientAuth` 的证书，以及有 `serverAuth` 却明确禁止签名的证书，均要求在启动前拒绝。Server pinned 客户端证书如果只有 `serverAuth` 同样拒绝。
 - 相关改动：`agent/internal/transport/server.go` 和 `server_test.go`。这些为隔离 CI 安全测试，不涉及真实 NAS/运行中 Docker。需以对应 GitHub CI 成功结果作为自动化证据；Codex 独立验收、实网证书轮换与网络包级零通信仍为 `NOT_RUN`。
+
+## T-044/T-045/T-047 Agent 防重放与旧会话隔离（2026-10-12；尚未独立验收）
+
+- [GitHub Actions 38189254603](https://github.com/CiBeDerORG/Navloom/actions/runs/38189254603) **4/4 通过**：Go Agent、Web/Server/SQLite、开发 Compose、真实双 Go 被动 Agent↔Server 反向 mTLS WSS 集成均通过。
+- **Agent 接收侧防重放**：Go 被动 `/agent` 会话在成功验证 v2 任务信封后，检查本会话的 `task_id` 与 `message_id` 去重集合；相同 ID 不重复执行只读 `capability_probe`，直接发 WSS policy violation 关闭帧；每个会话最多接受 1,024 个任务以防无限内存占用。新的 Go TLS WebSocket 回归分别使用不同 message_id 重放 task_id，以及使用不同 task_id 重放 message_id，验证首个任务成功而第二个被拒绝。
+- **Server 新旧会话隔离**：新增 Node 回归覆盖同一 Agent 的新会话替换旧连接时，将旧未决任务视为 `unknown`，旧连接的结果、Pong、close callback 不得修改新会话、任务状态或能力快照。Go 和 Server 验证不产生新的周期性 Agent 心跳。
+- **重要限制**：Agent 去重集合仅维持在**单条 WSS 会话内**，断开或进程重启后失效。当前只执行只读探测；将来 T-055 开放 `container_start/stop/restart`、Compose 等副作用命令前，须设计并验收持久化去重/执行记录与明确的断连结果恢复规则，绝不能把本阶段的会话去重宣传为跨重启 exactly-once。真实 NAS 网络抓包、浏览器与 Codex 独立验收仍未完成，T-044/T-045/T-047 保持 `NOT_RUN`。
