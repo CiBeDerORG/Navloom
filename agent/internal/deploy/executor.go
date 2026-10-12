@@ -144,7 +144,7 @@ func (e Executor) Execute(ctx context.Context, taskID string, raw []byte) (int, 
 		return -1, err
 	}
 	root := filepath.Clean(e.Root)
-	if !filepath.IsAbs(root) || root == "/" || strings.Contains(root, "..") {
+	if !filepath.IsAbs(root) || root == "/" || filepath.Clean(e.Root) != e.Root || strings.Contains(root, "..") {
 		return -1, errors.New("deployment root must be an absolute private directory")
 	}
 	if err := os.Mkdir(root, 0700); err != nil && !errors.Is(err, os.ErrExist) {
@@ -153,31 +153,29 @@ func (e Executor) Execute(ctx context.Context, taskID string, raw []byte) (int, 
 	if err := verifyPrivateDir(root); err != nil {
 		return -1, err
 	}
-	lockFile, err := os.OpenFile(filepath.Join(root, ".deploy.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	lockFile, err := openPrivateNoFollow(filepath.Join(root, ".deploy.lock"), syscall.O_CREAT|syscall.O_RDWR)
 	if err != nil {
-		return -1, errors.New("deployment lock unavailable")
+		return -1, errors.New("deployment lock unavailable or unsafe")
 	}
 	defer lockFile.Close()
-	if err := verifyPrivateFile(lockFile); err != nil {
-		return -1, err
-	}
 	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
 		return -1, errors.New("cannot acquire deployment lock")
 	}
 	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
 	ledgerPath := filepath.Join(root, ".claims.jsonl")
-	existing, err := os.ReadFile(ledgerPath)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return -1, errors.New("cannot read claim ledger")
+	var existing []byte
+	ledgerRead, err := openPrivateNoFollow(ledgerPath, syscall.O_RDONLY)
+	if err == nil {
+		existing, err = io.ReadAll(io.LimitReader(ledgerRead, 2*1024*1024+1))
+		ledgerRead.Close()
+		if err != nil {
+			return -1, errors.New("cannot read claim ledger")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return -1, errors.New("unsafe claim ledger")
 	}
 	if len(existing) > 2*1024*1024 {
 		return -1, errors.New("claim ledger capacity exceeded")
-	}
-	if len(existing) != 0 {
-		stat, err := os.Lstat(ledgerPath)
-		if err != nil || !stat.Mode().IsRegular() || stat.Mode().Perm()&0077 != 0 {
-			return -1, errors.New("unsafe claim ledger")
-		}
 	}
 	digest := sha256.Sum256(raw)
 	records := bytes.Split(bytes.TrimSpace(existing), []byte("\n"))
@@ -227,13 +225,9 @@ func (e Executor) Execute(ctx context.Context, taskID string, raw []byte) (int, 
 	if err := syncDir(directory); err != nil {
 		return -1, err
 	}
-	file, err := os.OpenFile(ledgerPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	file, err := openPrivateNoFollow(ledgerPath, syscall.O_CREAT|syscall.O_APPEND|syscall.O_WRONLY)
 	if err != nil {
-		return -1, errors.New("cannot open deployment ledger")
-	}
-	if err := verifyPrivateFile(file); err != nil {
-		file.Close()
-		return -1, err
+		return -1, errors.New("cannot open private deployment ledger")
 	}
 	line, _ := json.Marshal(claim{TaskID: taskID, Project: spec.Name, Digest: hex.EncodeToString(digest[:])})
 	if _, err := file.Write(append(line, '\n')); err != nil {
@@ -265,6 +259,21 @@ func (e Executor) Execute(ctx context.Context, taskID string, raw []byte) (int, 
 		return exit.ExitCode(), errors.New("Docker Compose returned nonzero exit code")
 	}
 	return -1, errors.New("Docker Compose invocation unavailable")
+}
+
+// O_NOFOLLOW prevents a symlink inside a private Agent directory from ever
+// redirecting a lock, journal or secret-bearing file to another location.
+func openPrivateNoFollow(path string, flags int) (*os.File, error) {
+	fd, err := syscall.Open(path, flags|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0600)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	if err := verifyPrivateFile(file); err != nil {
+		file.Close()
+		return nil, err
+	}
+	return file, nil
 }
 
 func verifyPrivateDir(path string) error {
