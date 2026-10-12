@@ -36,6 +36,20 @@ export function registerCatalog(app: FastifyInstance, access: Access, db: Databa
     });
   });
 
+  app.get("/api/v1/admin/install/prepared-tasks", async (request) => {
+    access.requireAdmin(request);
+    const rows = db.sqlite.prepare(
+      "SELECT t.id, t.agent_id AS agentId, a.name AS agentName, " +
+      "t.template_id AS templateId, t.template_version AS templateVersion, " +
+      "json_extract(t.navigation_draft_json, '$.title') AS navigationTitle, " +
+      "t.status, t.created_at AS createdAt, t.updated_at AS updatedAt " +
+      "FROM install_tasks t JOIN agents a ON a.id = t.agent_id " +
+      "WHERE t.status = 'prepared' ORDER BY t.created_at DESC, t.id DESC LIMIT 100",
+    ).all();
+    // Never return inputs, ciphertext, encryption fingerprints or secrets.
+    return { tasks: rows };
+  });
+
   app.post("/api/v1/admin/install/prepared-tasks", async (request, reply) => {
     access.requireAdmin(request);
     const input = z.object({
