@@ -77,8 +77,9 @@ func passiveTLSConfig(cfg config.Config, identity pairing.Identity) (*tls.Config
 	}
 	ownLeaf, err := x509.ParseCertificate(own.Certificate[0])
 	if err != nil || ownLeaf.IsCA || time.Now().Before(ownLeaf.NotBefore) || !time.Now().Before(ownLeaf.NotAfter) ||
-		ownLeaf.VerifyHostname(cfg.EndpointHost) != nil {
-		return nil, errors.New("Agent TLS certificate is expired or does not match endpoint IP")
+		ownLeaf.VerifyHostname(cfg.EndpointHost) != nil ||
+		ownLeaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 || !hasExtKeyUsage(ownLeaf, x509.ExtKeyUsageServerAuth) {
+		return nil, errors.New("Agent TLS certificate is invalid for the private WSS endpoint")
 	}
 	block, rest := pem.Decode([]byte(identity.ServerClientCertificatePEM))
 	if block == nil || block.Type != "CERTIFICATE" || len(bytes.TrimSpace(rest)) != 0 {
@@ -88,13 +89,7 @@ func passiveTLSConfig(cfg config.Config, identity pairing.Identity) (*tls.Config
 	if err != nil || pinned.IsCA || time.Now().Before(pinned.NotBefore) || !time.Now().Before(pinned.NotAfter) {
 		return nil, errors.New("invalid or expired Server client TLS certificate")
 	}
-	clientAuth := false
-	for _, usage := range pinned.ExtKeyUsage {
-		if usage == x509.ExtKeyUsageClientAuth {
-			clientAuth = true
-		}
-	}
-	if !clientAuth {
+	if pinned.KeyUsage&x509.KeyUsageDigitalSignature == 0 || !hasExtKeyUsage(pinned, x509.ExtKeyUsageClientAuth) {
 		return nil, errors.New("pinned Server certificate must be valid for client authentication")
 	}
 	return &tls.Config{
@@ -112,6 +107,15 @@ func passiveTLSConfig(cfg config.Config, identity pairing.Identity) (*tls.Config
 			return nil
 		},
 	}, nil
+}
+
+func hasExtKeyUsage(cert *x509.Certificate, wanted x509.ExtKeyUsage) bool {
+	for _, usage := range cert.ExtKeyUsage {
+		if usage == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func passiveHandler(ctx context.Context, identity pairing.Identity, version string, log *slog.Logger) http.Handler {
