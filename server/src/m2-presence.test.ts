@@ -193,3 +193,51 @@ test("T-040/T-047: silent half-open authenticated browser is swept without dropp
     headers: { ...csrf, cookie: admin }, payload: {} });
   assert.equal(withoutAnyPage.statusCode, 409, "after the last browser disappears no Agent probe is sent");
 });
+
+test("T-040/T-042: admin password rotation drops only admin browser presence while a home tab remains", async (t) => {
+  const { app, admin, home, getSettings, url, origin } = await setup(t, {
+    presenceSweepIntervalMs: 25,
+  });
+  const homePage = await connect(url, home, origin);
+  const adminPage = await connect(url, admin, origin);
+  t.after(() => { homePage.terminate(); adminPage.terminate(); });
+  assert.equal((await getSettings()).json().activePages, 2);
+
+  const changed = await app.inject({
+    method: "PATCH",
+    url: "/api/v1/admin/settings/password",
+    headers: { ...csrf, cookie: admin },
+    payload: { currentPassword: "test-admin-password-123", newPassword: "rotated-admin-password-456" },
+  });
+  assert.equal(changed.statusCode, 200);
+  await eventually(async () => homePage.readyState === WebSocket.OPEN &&
+    adminPage.readyState === WebSocket.CLOSED);
+
+  // Old admin sessions cannot continue administering a live home-only page.
+  const oldSettings = await app.inject({
+    method: "PATCH", url: "/api/v1/admin/agents/probe-settings",
+    headers: { ...csrf, cookie: admin }, payload: { mode: "auto", intervalMs: 5000 },
+  });
+  assert.equal(oldSettings.statusCode, 401);
+
+  const reLogin = await app.inject({
+    method: "POST", url: "/api/v1/auth/admin/login", headers: csrf,
+    payload: { username: "admin", password: "rotated-admin-password-456" },
+  });
+  assert.equal(reLogin.statusCode, 200);
+  const newAdmin = reLogin.headers["set-cookie"] as string;
+  const observe = () => app.inject({
+    method: "GET", url: "/api/v1/admin/agents/probe-settings", headers: { cookie: newAdmin },
+  });
+  assert.equal((await observe()).json().activePages, 1);
+  const homeCannotEdit = await app.inject({
+    method: "PATCH", url: "/api/v1/admin/agents/probe-settings",
+    headers: { ...csrf, cookie: home }, payload: { mode: "auto", intervalMs: 5000 },
+  });
+  assert.equal(homeCannotEdit.statusCode, 401);
+  homePage.close();
+  await new Promise<void>((done) => homePage.once("close", () => done()));
+  await eventually(async () => (await observe()).json().activePages === 0);
+  assert.equal((await observe()).json().mode, "manual",
+    "closing the final page must not rewrite the persisted probe mode");
+});
