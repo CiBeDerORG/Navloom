@@ -1,0 +1,52 @@
+apiVersion: navloom/v1
+id: postgres-adminer
+version: 1.0.0
+title: PostgreSQL + Adminer
+description: 两服务 Compose 模板：PostgreSQL 数据库和 Adminer Web 管理页面，仅将 Adminer 映射到 Agent 设备回环端口。
+category: 开发工具
+icon: "🗄️"
+architectures: [amd64, arm64]
+parameters:
+  type: object
+  additionalProperties: false
+  required: [web_port, db_password]
+  properties:
+    web_port:
+      type: integer
+      title: Adminer HTTP 端口
+      default: 18081
+      minimum: 1024
+      maximum: 65535
+      format: port
+    db_password:
+      type: string
+      title: 数据库密码
+      secret: true
+      minLength: 12
+      maxLength: 128
+    timezone:
+      type: string
+      title: 时区
+      default: Asia/Shanghai
+      enum: [Asia/Shanghai, Asia/Tokyo, UTC]
+compose:
+  services:
+    - name: database
+      image: postgres:16.8-alpine
+      environment:
+        POSTGRES_PASSWORD:
+          parameter: db_password
+        TZ:
+          parameter: timezone
+      volumes:
+        - name: postgres_data
+          target: /var/lib/postgresql/data
+    - name: adminer
+      image: adminer:4.8.1
+      ports:
+        - container: 8080
+          hostParameter: web_port
+          protocol: tcp
+navigation:
+  title: Adminer 数据库管理
+  icon: "🗄️"
