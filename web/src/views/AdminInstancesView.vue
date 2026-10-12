@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import AdminShell from "../components/AdminShell.vue";
 import ContainerPool from "../components/ContainerPool.vue";
+import ApplicationCatalog from "../components/ApplicationCatalog.vue";
 import {
   getAgents, issueAgentPairToken, renameAgent, revokeAgent, requestAgentCapabilityProbe,
   type AgentDevice,
@@ -128,7 +129,7 @@ onUnmounted(() => {
       <p class="text-xs font-semibold tracking-widest text-sky-400">DEVICES & APPLICATIONS</p>
       <h1 class="mt-2 text-3xl font-semibold">应用实例管理</h1>
       <p class="mt-2 text-sm text-slate-400">
-        正在迁移为 Server 按需连接 Agent，连接检测使用 WSS Ping/Pong；容器池及 Docker 操作仍待实现。
+        Server 根据在线页面按需连接 Agent；在下方可管理容器池、浏览可信应用模板，并预览安装参数。M3 的实际部署任务执行尚未开放。
       </p>
     </header>
 
@@ -226,6 +227,8 @@ onUnmounted(() => {
         <p v-else class="text-sm text-slate-400">选择左侧设备查看详情。</p>
       </div>
     </section>
+
+    <ApplicationCatalog :agents="agents" />
 
     <ContainerPool />
   </AdminShell>
