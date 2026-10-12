@@ -57,12 +57,14 @@ test("T-061/T-062/T-063: invalid params and dangerous Compose overrides are reje
     db_password: "a-tested-password", web_port: 18099,
   }, "abcd1234");
   assert.equal(compose.name, "navloom-postgres-adminer-abcd1234");
-  assert.equal(compose.services.database.environment?.POSTGRES_PASSWORD, "a-tested-password");
-  assert.deepEqual(compose.services.adminer.ports, ["127.0.0.1:18099:8080/tcp"]);
-  assert.deepEqual(compose.services.database.volumes, ["postgres-adminer_postgres_data:/var/lib/postgresql/data"]);
-  assert.equal(Object.hasOwn(compose.services.database, "command"), false);
-  assert.equal(Object.hasOwn(compose.services.database, "privileged"), false);
-  assert.equal(Object.hasOwn(compose.services.database, "network_mode"), false);
+  const dbService = compose.services.database!;
+  const adminerService = compose.services.adminer!;
+  assert.equal(dbService.environment?.POSTGRES_PASSWORD, "a-tested-password");
+  assert.deepEqual(adminerService.ports, ["127.0.0.1:18099:8080/tcp"]);
+  assert.deepEqual(dbService.volumes, ["postgres-adminer_postgres_data:/var/lib/postgresql/data"]);
+  assert.equal(Object.hasOwn(dbService, "command"), false);
+  assert.equal(Object.hasOwn(dbService, "privileged"), false);
+  assert.equal(Object.hasOwn(dbService, "network_mode"), false);
   assert.throws(() => renderTrustedCompose(nginx, {}, "../bad"), /Invalid installation instance suffix/);
   assert.throws(() => renderTrustedCompose(nginx, { http_port: 18080, image: "evil" }, "abcd1234"), /Unknown/);
 
