@@ -139,7 +139,7 @@ function valueAllowed(field: ParameterField, value: unknown): boolean {
       (field.format !== "port" || (value >= 1 && value <= 65535));
   }
   return typeof value === "string" && value.length <= 512 &&
-    !/[\u0000-\u001f\u007f]/u.test(value) &&
+    !Array.from(value).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) &&
     (field.minLength === undefined || value.length >= field.minLength) &&
     (field.maxLength === undefined || value.length <= field.maxLength) &&
     (!field.enum || field.enum.includes(value)) &&
