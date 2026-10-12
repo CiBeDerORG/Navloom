@@ -20,7 +20,7 @@ func TestDockerEventsProduceOnlyContainerChangeNotifications(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintln(w, `{"Type":"network","Action":"connect"}`)
-		_, _ = fmt.Fprintf(w, "{\"Type\":\"container\",\"Action\":\"start\",\"Actor\":{\"ID\":\"%s\"}}\\n", strings.Repeat("a", 64))
+		_, _ = fmt.Fprintf(w, "{\"Type\":\"container\",\"Action\":\"start\",\"Actor\":{\"ID\":\"%s\"}}\n", strings.Repeat("a", 64))
 		w.(http.Flusher).Flush()
 		<-r.Context().Done()
 		writes <- struct{}{}
