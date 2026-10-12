@@ -150,7 +150,7 @@ export type DeployedAppInstance = {
   id: string; agentId: string; agentName: string; templateId: string;
   templateVersion: string; composeProject: string; createdAt: number; containerCount: number;
 };
-export const getContainerPool = (params: { agentId?: string; state?: string; search?: string; offset?: number; limit?: number } = {}) => {
+export const getContainerPool = (params: { agentId?: string; state?: string; source?: "managed" | "external"; search?: string; offset?: number; limit?: number } = {}) => {
   const query = new URLSearchParams();
   if (params.agentId) query.set("agentId", params.agentId);
   if (params.state) query.set("state", params.state);
