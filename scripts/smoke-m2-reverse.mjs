@@ -259,6 +259,23 @@ try {
   assert.ok(establishedAgentTcp(second.port) > 0, "revoking A must not disconnect B's TCP socket");
   await stop(processA);
 
+  // Automatic detection is a single persisted Server-wide setting. Both
+  // browser roles receive one broadcast; no per-tab Agent schedulers exist.
+  const homeEvents = [];
+  const adminEvents = [];
+  homePage.on("message", (raw) => homeEvents.push(JSON.parse(raw.toString())));
+  adminPage.on("message", (raw) => adminEvents.push(JSON.parse(raw.toString())));
+  const pongBeforeAuto = (await devices()).find((device) => device.id === second.id)?.lastPongAt ?? 0;
+  const autoMode = await call("/api/v1/admin/agents/probe-settings", "PATCH",
+    { mode: "auto", intervalMs: 5000 }, cookie);
+  assert.equal(autoMode.payload.mode, "auto");
+  await until(async () => homeEvents.some((event) => event.type === "probe_settings" && event.settings.mode === "auto") &&
+    adminEvents.some((event) => event.type === "probe_settings" && event.settings.mode === "auto"));
+  await until(async () => ((await devices()).find((device) => device.id === second.id)?.lastPongAt ?? 0) > pongBeforeAuto,
+    9_000);
+  assert.equal(establishedAgentTcp(second.port), secondConnectionCount,
+    "automatic probing across two tabs must not duplicate Agent connections");
+
   // Close admin tab; the home-only tab must keep Agent B connected.
   await closePage(adminPage);
   await until(async () => (await settings()).payload.activePages === 1);
@@ -272,7 +289,8 @@ try {
   assert.equal(establishedAgentTcp(first.port), 0, "revoked A remains disconnected");
   assert.equal(establishedAgentTcp(second.port), 0, "no page: no established Agent TCP session");
   const lastSeen = paused.find((device) => device.id === second.id)?.lastSeenAt;
-  await delay(700);
+  await delay(5500); // exceeds the persisted automatic Ping interval
+  assert.equal((await settings()).payload.mode, "auto", "configuration persists when no page exists");
   assert.equal((await devices()).find((device) => device.id === second.id)?.lastSeenAt, lastSeen);
   assert.equal(establishedAgentTcp(second.port), 0, "no hidden Agent reconnection during idle");
 
@@ -284,7 +302,7 @@ try {
   await closePage(reopened);
   await until(async () => establishedAgentTcp(second.port) === 0);
   await stop(processB);
-  console.log("M2 reverse WSS v2 PASS: 2 passive Go Agents, no legacy inbound route, home-only activation, mTLS, global Ping, isolated tasks, restart, revoke, kernel TCP zero-page idle");
+  console.log("M2 reverse WSS v2 PASS: 2 passive Go Agents, no legacy inbound route, home-only activation, mTLS, global Ping, isolated tasks, restart, revoke, kernel TCP zero-page idle, shared auto mode and timer shutdown");
 } finally {
   for (const child of children.reverse()) await stop(child);
   rmSync(temp, { recursive: true, force: true });
