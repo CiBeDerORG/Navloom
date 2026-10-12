@@ -14,8 +14,8 @@ func TestOperationJournalSurvivesRestartAndPreventsReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := journalEntry{
-		TaskID: "de57a2f3-38da-4cb7-a676-81b3950b9701",
-		Operation: "container_restart",
+		TaskID:      "de57a2f3-38da-4cb7-a676-81b3950b9701",
+		Operation:   "container_restart",
 		ContainerID: strings.Repeat("a", 64),
 	}
 	claimed, err := journal.claim(entry)
