@@ -139,6 +139,7 @@ export type PoolContainer = {
   image: string; state: string; ports: ContainerPort[]; labels: Record<string, string>;
   composeProject: string | null; composeService: string | null; instanceId: string | null;
   lastSeenAt: number; snapshotAt: number | null; historical: boolean; stale: boolean;
+  source: "managed" | "external";
 };
 export type AgentInventoryState = {
   agentId: string; name: string; revokedAt: number | null; updatedAt: number | null;
@@ -153,6 +154,7 @@ export const getContainerPool = (params: { agentId?: string; state?: string; sea
   const query = new URLSearchParams();
   if (params.agentId) query.set("agentId", params.agentId);
   if (params.state) query.set("state", params.state);
+  if (params.source) query.set("source", params.source);
   if (params.search) query.set("search", params.search);
   query.set("limit", String(params.limit ?? 100));
   query.set("offset", String(params.offset ?? 0));
@@ -183,3 +185,11 @@ export const getDockerTaskLogs = (taskId: string) =>
   request<{ taskId: string; status: string; lines: Array<{ sequence: number; line: string }> }>(
     "/admin/agent-tasks/" + encodeURIComponent(taskId) + "/logs",
   );
+
+export type InventorySettings = { intervalMs: number; updatedAt: number };
+export const getInventorySettings = () => request<InventorySettings>("/admin/inventory-settings");
+export const updateInventorySettings = (intervalMs: number) =>
+  request<InventorySettings>("/admin/inventory-settings", { method: "PATCH", body: payload({ intervalMs }) });
+export const getAppInstanceDetails = (id: string) => request<{ instance: DeployedAppInstance & {
+  installTaskId: string;
+}; containers: PoolContainer[] }>("/admin/app-instances/" + encodeURIComponent(id));
