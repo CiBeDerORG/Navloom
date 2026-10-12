@@ -27,6 +27,29 @@ function privateIP() {
   throw new Error("No private IPv4 interface available for isolated reverse WSS test");
 }
 
+// Linux CI observes kernel TCP state rather than trusting the API's
+// "paused" label. Both Agent and Server live in this isolated namespace.
+function establishedAgentTcp(port) {
+  const hexPort = port.toString(16).toUpperCase().padStart(4, "0");
+  let established = 0;
+  for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
+    let contents;
+    try { contents = readFileSync(table, "utf8"); }
+    catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    for (const row of contents.trim().split("\n").slice(1)) {
+      const fields = row.trim().split(/\s+/);
+      if (fields.length < 4 || fields[3] !== "01") continue; // 01 = ESTABLISHED
+      const localPort = fields[1].split(":").at(-1);
+      const remotePort = fields[2].split(":").at(-1);
+      if (localPort === hexPort || remotePort === hexPort) established++;
+    }
+  }
+  return established;
+}
+
 async function unusedPort(host) {
   return await new Promise((done, reject) => {
     const server = createServer();
@@ -163,7 +186,7 @@ try {
     assert.equal(paired.status, 0, name + " pairing failed: " + (paired.stderr ?? "").slice(-500));
     const identity = JSON.parse(readFileSync(identityFile, "utf8"));
     assert.ok(identity.server_client_certificate_pem?.includes("BEGIN CERTIFICATE"));
-    return { name, cfg, id: identity.agent_id };
+    return { name, cfg, id: identity.agent_id, port: agentPort };
   }
 
   function startAgent(agent) {
@@ -185,12 +208,19 @@ try {
   assert.equal((await settings()).payload.activePages, 0);
   assert.deepEqual((await devices()).map((device) => device.status), ["paused", "paused"]);
   assert.ok((await devices()).every((device) => device.lastSeenAt === null));
+  assert.equal(establishedAgentTcp(first.port), 0, "zero pages: A has no Server TCP session");
+  assert.equal(establishedAgentTcp(second.port), 0, "zero pages: B has no Server TCP session");
 
   // An ordinary homepage-cookie browser, with no admin page open, activates both Agents.
   const homePage = await page(homeCookie);
   await until(async () => (await devices()).filter((device) => device.status === "online").length === 2);
+  await until(async () => establishedAgentTcp(first.port) > 0 && establishedAgentTcp(second.port) > 0);
+  const firstConnectionCount = establishedAgentTcp(first.port);
+  const secondConnectionCount = establishedAgentTcp(second.port);
   const adminPage = await page(cookie);
   await until(async () => (await settings()).payload.activePages === 2);
+  assert.equal(establishedAgentTcp(first.port), firstConnectionCount, "second page must not duplicate Agent A WSS");
+  assert.equal(establishedAgentTcp(second.port), secondConnectionCount, "second page must not duplicate Agent B WSS");
   const beforePing = new Map((await devices()).map((device) => [device.id, device.lastSeenAt]));
   for (const device of await devices()) {
     assert.equal(device.certificateConfigured, true, "Agent trust must be explicitly provisioned");
@@ -225,27 +255,36 @@ try {
   await call("/api/v1/admin/agents/" + first.id + "/revoke", "POST", {}, cookie);
   await until(async () => (await devices()).find((device) => device.id === first.id)?.status === "revoked");
   assert.equal((await devices()).find((device) => device.id === second.id)?.status, "online");
+  await until(async () => establishedAgentTcp(first.port) === 0);
+  assert.ok(establishedAgentTcp(second.port) > 0, "revoking A must not disconnect B's TCP socket");
   await stop(processA);
 
   // Close admin tab; the home-only tab must keep Agent B connected.
   await closePage(adminPage);
   await until(async () => (await settings()).payload.activePages === 1);
   assert.equal((await devices()).find((device) => device.id === second.id)?.status, "online");
+  assert.ok(establishedAgentTcp(second.port) > 0, "home-only page keeps the Agent TCP socket");
   await closePage(homePage);
   await until(async () => (await settings()).payload.activePages === 0);
   const paused = await devices();
   assert.equal(paused.find((device) => device.id === second.id)?.status, "paused");
+  await until(async () => establishedAgentTcp(second.port) === 0);
+  assert.equal(establishedAgentTcp(first.port), 0, "revoked A remains disconnected");
+  assert.equal(establishedAgentTcp(second.port), 0, "no page: no established Agent TCP session");
   const lastSeen = paused.find((device) => device.id === second.id)?.lastSeenAt;
   await delay(700);
   assert.equal((await devices()).find((device) => device.id === second.id)?.lastSeenAt, lastSeen);
+  assert.equal(establishedAgentTcp(second.port), 0, "no hidden Agent reconnection during idle");
 
   // A single ordinary navigation page reconnects only the still-authorized Agent.
   const reopened = await page(homeCookie);
   await until(async () => (await devices()).find((device) => device.id === second.id)?.status === "online");
+  await until(async () => establishedAgentTcp(second.port) > 0);
   assert.equal((await devices()).find((device) => device.id === first.id)?.status, "revoked");
   await closePage(reopened);
+  await until(async () => establishedAgentTcp(second.port) === 0);
   await stop(processB);
-  console.log("M2 reverse WSS v2 PASS: 2 passive Go Agents, no legacy inbound route, home-only activation, mTLS, global Ping, isolated tasks, restart, revoke, zero-page idle");
+  console.log("M2 reverse WSS v2 PASS: 2 passive Go Agents, no legacy inbound route, home-only activation, mTLS, global Ping, isolated tasks, restart, revoke, kernel TCP zero-page idle");
 } finally {
   for (const child of children.reverse()) await stop(child);
   rmSync(temp, { recursive: true, force: true });
