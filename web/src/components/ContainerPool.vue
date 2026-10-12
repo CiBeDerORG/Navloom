@@ -2,7 +2,8 @@
 import { computed, onMounted, ref } from "vue";
 import {
   getAgentInventories, getContainerPool, getDeployedAppInstances, refreshAgentInventory,
-  getAgentTask, type AgentInventoryState, type PoolContainer, type DeployedAppInstance,
+  getAgentTask, claimComposeInstance, unclaimComposeInstance,
+  type AgentInventoryState, type PoolContainer, type DeployedAppInstance,
 } from "../lib/api";
 
 const devices = ref<AgentInventoryState[]>([]);
@@ -63,6 +64,26 @@ async function refresh(device: AgentInventoryState) {
     }
     await load();
   } catch (cause) { error.value = cause instanceof Error ? cause.message : "扫描失败"; }
+  finally { busy.value = ""; }
+}
+async function claim(row: PoolContainer) {
+  if (!row.composeProject || busy.value) return;
+  busy.value = row.agentId;
+  try {
+    await claimComposeInstance(row.agentId, row.composeProject);
+    notice.value = "Compose 项目已关联到 Navloom 实例记录（未执行 Docker 操作）";
+    await load();
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : "关联失败"; }
+  finally { busy.value = ""; }
+}
+async function unclaim(id: string) {
+  if (busy.value || !window.confirm("只删除 Navloom 实例登记，不影响容器或导航书签。确认取消关联？")) return;
+  busy.value = id;
+  try {
+    await unclaimComposeInstance(id);
+    notice.value = "已取消登记，原有容器保持不变";
+    await load();
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : "取消关联失败"; }
   finally { busy.value = ""; }
 }
 function query() { offset.value = 0; void load(); }
@@ -128,6 +149,9 @@ onMounted(() => { void load(); });
       <h3 class="font-semibold">容器详情 · {{ selected.name }}</h3>
       <p class="mt-2 break-all text-xs text-slate-400">ID：{{ selected.containerId }}</p>
       <p class="mt-1 text-xs">上次扫描：{{ stamp(selected.lastSeenAt) }} · 应用实例：{{ selected.instanceId || '未关联' }}</p>
+      <button v-if="selected.composeProject && !selected.instanceId"
+        :disabled="!!busy" class="mt-2 rounded-lg border border-sky-500/40 px-3 py-1 text-xs disabled:opacity-40"
+        @click="claim(selected)">登记此 Compose 应用实例</button>
       <pre class="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-all text-xs text-slate-400">{{ JSON.stringify(selected.labels, null, 2) }}</pre>
     </div>
     <div class="flex justify-between gap-2">
@@ -138,7 +162,10 @@ onMounted(() => { void load(); });
     <p v-if="!instances.length" class="text-xs text-slate-400">尚无已登记实例。容器发现不会自动创建部署记录。</p>
     <div v-for="app in instances" :key="app.id" class="flex justify-between gap-2 rounded-lg border border-white/10 p-2 text-xs">
       <span>{{ app.agentName }} / {{ app.composeProject }} · {{ app.templateId }}@{{ app.templateVersion }}</span>
-      <span>关联容器 {{ app.containerCount }}</span>
+      <span class="flex items-center gap-2">关联容器 {{ app.containerCount }}
+        <button class="rounded border border-rose-500/30 px-2 py-1 text-rose-300 disabled:opacity-40"
+          :disabled="!!busy" @click="unclaim(app.id)">取消登记</button>
+      </span>
     </div>
   </section>
 </template>
