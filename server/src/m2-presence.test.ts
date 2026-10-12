@@ -162,3 +162,34 @@ test("T-040: abrupt browser transport failure is removed without a close handsha
     headers: { ...csrf, cookie: admin }, payload: {} });
   assert.equal(noPageProbe.statusCode, 409, "no logged-in browser means no Agent Ping dispatch");
 });
+
+
+test("T-040/T-047: silent half-open authenticated browser is swept without dropping a responsive tab", async (t) => {
+  const { app, admin, home, getSettings, url, origin } = await setup(t, {
+    presenceSweepIntervalMs: 20, presencePongTimeoutMs: 80,
+  });
+  const healthy = await connect(url, home, origin);
+  const silent = await connect(url, admin, origin);
+  t.after(() => { healthy.terminate(); silent.terminate(); });
+
+  // Leave the TCP/WebSocket connection OPEN but suppress automatic Pong
+  // entirely. This is not a normal browser .close() or .terminate().
+  let incomingPings = 0;
+  silent.on("ping", () => { incomingPings++; });
+  silent.pong = (() => {}) as typeof silent.pong;
+
+  assert.equal((await getSettings()).json().activePages, 2);
+  await eventually(async () => (await getSettings()).json().activePages === 1);
+  assert.ok(incomingPings > 0, "the unresponsive page must have received a server Ping");
+  assert.equal(healthy.readyState, WebSocket.OPEN, "a responsive home-only page stays counted");
+
+  const whileHomeOpen = await app.inject({ method: "POST", url: "/api/v1/admin/agents/probe",
+    headers: { ...csrf, cookie: admin }, payload: {} });
+  assert.equal(whileHomeOpen.statusCode, 202, "home-only browser may keep connection alive, but cannot edit it");
+  healthy.close();
+  await new Promise<void>((done) => healthy.once("close", done));
+  await eventually(async () => (await getSettings()).json().activePages === 0);
+  const withoutAnyPage = await app.inject({ method: "POST", url: "/api/v1/admin/agents/probe",
+    headers: { ...csrf, cookie: admin }, payload: {} });
+  assert.equal(withoutAnyPage.statusCode, 409, "after the last browser disappears no Agent probe is sent");
+});
