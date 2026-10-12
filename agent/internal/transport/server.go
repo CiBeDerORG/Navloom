@@ -194,8 +194,8 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 		defer stopWatching()
 		go func() {
 			for watchCtx.Err() == nil {
-				_ = probe.WatchDockerEvents(watchCtx, func() {
-					event, err := protocol.NewInventoryChanged(identity.AgentID)
+				_ = probe.WatchDockerEvents(watchCtx, func(change probe.ContainerEvent) {
+					event, err := protocol.NewInventoryChanged(identity.AgentID, change.ContainerID, change.Action)
 					if err != nil || send(event) != nil {
 						stopWatching()
 					}
