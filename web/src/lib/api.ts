@@ -193,3 +193,44 @@ export const updateInventorySettings = (intervalMs: number) =>
 export const getAppInstanceDetails = (id: string) => request<{ instance: DeployedAppInstance & {
   installTaskId: string;
 }; containers: PoolContainer[] }>("/admin/app-instances/" + encodeURIComponent(id));
+
+// M3: built-in, audited template catalog. Preview validates data only;
+// installation dispatch is intentionally NOT enabled until the durable task
+// state machine and Agent Compose executor land in later M3 tasks.
+export type CatalogParameterField = {
+  type: "string" | "integer" | "boolean";
+  title: string; description?: string; secret?: boolean;
+  default?: string | number | boolean;
+  enum?: Array<string | number>;
+  minLength?: number; maxLength?: number; minimum?: number; maximum?: number;
+  format?: "plain" | "absolute-path" | "port";
+};
+export type CatalogTemplateSummary = {
+  id: string; version: string; title: string; description: string;
+  category: string; icon?: string; architectures: Array<"amd64" | "arm64">;
+};
+export type CatalogTemplateDetail = CatalogTemplateSummary & {
+  parameters: {
+    type: "object"; additionalProperties: false;
+    required: string[]; properties: Record<string, CatalogParameterField>;
+  };
+  compose: { services: Array<{ name: string; image: string }> };
+  navigation: { title: string; icon?: string; url?: string };
+};
+export type CatalogPreview = {
+  valid: true; project: string;
+  services: Array<{
+    name: string; image: string; ports: string[];
+    volumes: string[]; environmentKeys: string[];
+  }>;
+};
+export const getApplicationCatalog = (search = "") =>
+  request<{ templates: CatalogTemplateSummary[] }>(
+    "/admin/catalog/templates" + (search ? "?search=" + encodeURIComponent(search) : ""),
+  );
+export const getApplicationTemplate = (id: string) =>
+  request<{ template: CatalogTemplateDetail }>("/admin/catalog/templates/" + encodeURIComponent(id));
+export const previewApplicationTemplate = (id: string, parameters: Record<string, string | number | boolean>) =>
+  request<CatalogPreview>("/admin/catalog/templates/" + encodeURIComponent(id) + "/preview", {
+    method: "POST", body: payload({ parameters }),
+  });
