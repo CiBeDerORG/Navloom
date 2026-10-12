@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { resolve } from "node:path";
 import { test } from "node:test";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -8,6 +9,7 @@ import { AgentMessageSchema, type AgentMessage } from "@navloom/contracts";
 import { buildApp } from "./app.js";
 import { openDatabase } from "./db/client.js";
 import { AgentTasks } from "./realtime/agent-tasks.js";
+import { AgentHub } from "./realtime/agent-hub.js";
 import { hashPassword } from "./security/password.js";
 
 type Chunk = Extract<AgentMessage, { type: "inventory_chunk" }>;
@@ -162,4 +164,68 @@ test("T-052/T-054/T-057: admin-only pool filters and stable Compose association"
   const zeroPage = await app.inject({ method: "POST", url: "/api/v1/admin/agents/" + a + "/inventory-refresh",
     headers: { cookie, "x-navloom-csrf": "1", "content-type": "application/json" }, payload: {} });
   assert.equal(zeroPage.statusCode, 409, "no active Agent connection means no Docker access");
+});
+
+test("T-050: event arriving during a full scan schedules another reconciliation", async (t) => {
+  const db = openDatabase(":memory:");
+  migrate(db.orm, { migrationsFolder: resolve(process.cwd(), "drizzle") });
+  const agentId = randomUUID();
+  db.sqlite.prepare("INSERT INTO agents (id, name) VALUES (?, ?)").run(agentId, "event-race-nas");
+  const hub = new AgentHub(db, { sweepIntervalMs: 5000 });
+  t.after(() => { hub.shutdown(); db.close(); });
+
+  class AgentPeer extends EventEmitter {
+    readyState = WebSocket.OPEN;
+    sent: Array<{
+      type: string;
+      task_id: string;
+      payload: { operation: string };
+    }> = [];
+    send(raw: string, done: (err?: Error) => void): void {
+      this.sent.push(JSON.parse(raw));
+      done();
+    }
+    close(): void {
+      this.readyState = WebSocket.CLOSED;
+      this.emit("close");
+    }
+    terminate(): void { this.close(); }
+  }
+  const peer = new AgentPeer();
+  const receive = (type: string, payload: unknown, taskId?: string) => {
+    peer.emit("message", Buffer.from(JSON.stringify({
+      protocol_version: 2, message_id: randomUUID(), agent_id: agentId,
+      sent_at: new Date().toISOString(), type,
+      ...(taskId ? { task_id: taskId } : {}), payload,
+    })), false);
+  };
+  const refreshes = () => peer.sent.filter(item =>
+    item.type === "task_dispatch" && item.payload.operation === "inventory_refresh");
+
+  hub.setInventorySyncActive(true);
+  hub.connect(agentId, peer as unknown as WebSocket);
+  receive("hello", { version: "m2-inventory-race" });
+  assert.equal(refreshes().length, 1, "hello starts a full scan while a page is online");
+  const staleTask = refreshes()[0]!.task_id;
+  receive("inventory_changed", { container_id: "a".repeat(64), action: "start" });
+
+  await new Promise((done) => setTimeout(done, 1150));
+  assert.equal(refreshes().length, 1, "a second refresh must wait for the in-flight scan");
+  receive("task_result", {
+    success: true, exit_code: null, inventory_count: 0, inventory_chunks: 0,
+  }, staleTask);
+  assert.equal(hub.tasks.getTask(staleTask)?.status, "succeeded");
+
+  await new Promise((done) => setTimeout(done, 1150));
+  assert.equal(refreshes().length, 2,
+    "the buffered Docker change must get a new task after the older scan finishes");
+  assert.notEqual(refreshes()[1]!.task_id, staleTask, "a new scan requires a distinct task ID");
+
+  hub.setInventorySyncActive(false);
+  hub.disconnect(agentId, 1001, "last browser left");
+  assert.equal(hub.tasks.getTask(refreshes()[1]!.task_id)?.status, "unknown",
+    "a page closing during a scan leaves an unknown result, not a failed task");
+  receive("inventory_changed", { container_id: "b".repeat(64), action: "stop" });
+  await new Promise((done) => setTimeout(done, 1100));
+  assert.equal(refreshes().length, 2, "zero-page mode must not dispatch any further Docker task");
 });
