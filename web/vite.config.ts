@@ -11,7 +11,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": { target: "http://127.0.0.1:3000", changeOrigin: false, ws: true },
+      "/api": { target: process.env.NAVLOOM_API_PROXY_TARGET || "http://127.0.0.1:3000", changeOrigin: false, ws: true },
     },
   },
 });
