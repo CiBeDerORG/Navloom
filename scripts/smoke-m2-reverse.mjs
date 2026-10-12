@@ -421,7 +421,27 @@ try {
       20_000);
     assert.equal((await containersFor(first.id)).find(row => row.containerId === fixture.running)?.instanceId,
       claimed.payload.id);
-    console.log("M2 disposable real-Docker acceptance PASS: preexisting running/exited, labels, Agent isolation, instance association, start/stop/restart, bounded redacted logs and destroy reconciliation");
+
+    // Real Docker replacement: the container ID changes but the Compose
+    // project/service remain stable. A's explicit catalog association survives
+    // while B (same daemon, separate Agent ID) stays an external discovery.
+    docker(["rm", "--force", fixture.running]);
+    const recreated = docker(["create", "--name", "navloom-ci-recreated-" + process.pid + "-" + Date.now(),
+      "--label", "com.docker.compose.project=navloomacceptance",
+      "--label", "com.docker.compose.service=app", dockerFixtureImage]);
+    dockerFixtureIDs.push(recreated);
+    docker(["start", recreated]);
+    await until(async () => {
+      const rows = await containersFor(first.id);
+      return rows.some(row => row.containerId === recreated) &&
+        !rows.some(row => row.containerId === fixture.running);
+    }, 20_000);
+    await until(async () => (await containersFor(second.id)).some(row => row.containerId === recreated), 20_000);
+    assert.equal((await containersFor(first.id)).find(row => row.containerId === recreated)?.instanceId,
+      claimed.payload.id, "real replacement must retain Agent A Compose project association");
+    assert.equal((await containersFor(second.id)).find(row => row.containerId === recreated)?.instanceId,
+      null, "Agent B must not inherit A's managed Compose instance");
+    console.log("M2 disposable real-Docker acceptance PASS: preexisting running/exited, labels, Agent isolation, instance association, start/stop/restart, bounded redacted logs, destroy reconciliation and real container replacement");
   }
 
   // Stop and restart one passive Agent. The other one must remain connected.
