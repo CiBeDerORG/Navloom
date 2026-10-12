@@ -116,6 +116,13 @@ export const installTasks = sqliteTable("install_tasks", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
+export const installTaskInputs = sqliteTable("install_task_inputs", {
+  taskId: text("task_id").primaryKey().references(() => installTasks.id, { onDelete: "cascade" }),
+  requestDigest: text("request_digest").notNull(),
+  parametersCiphertext: text("parameters_ciphertext").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const taskLogs = sqliteTable("task_logs", {
   id: text("id").primaryKey(),
   taskId: text("task_id").notNull().references(() => installTasks.id, { onDelete: "cascade" }),
