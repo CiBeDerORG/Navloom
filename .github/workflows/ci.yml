@@ -159,5 +159,7 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Build Server and contracts
         run: npm run build:contracts && npm run build:server
-      - name: Real Go passive Agent and Node active Server mTLS WSS
+      - name: Real Go passive Agent, Node active Server and isolated Docker acceptance
+        env:
+          NAVLOOM_CI_DOCKER_FIXTURES: "1"
         run: node scripts/smoke-m2-reverse.mjs
