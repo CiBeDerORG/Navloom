@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { openDatabase } from "./db/client.js";
 import { ApiFailure } from "./security/access.js";
-import { createNavigationDraft, preflightInstall } from "./install/preflight.js";
+import { createNavigationDraft, preflightInstall, type PreflightInput } from "./install/preflight.js";
 import { loadBuiltinCatalog } from "./catalog/registry.js";
 import { buildApp } from "./app.js";
 import { hashPassword } from "./security/password.js";
@@ -32,8 +32,8 @@ test("T-069/T-072: preflight refuses offline/unsupported agents, stale capabilit
   const group = randomUUID();
   db.sqlite.prepare("INSERT INTO navigation_groups (id, name) VALUES (?, 'Tools')").run(group);
   const draft = { ...createNavigationDraft(template), groupId: group };
-  const payload = { agentId, template, parameters: inputParameters, navigation: draft };
-  const check = (online: boolean, override: Partial<typeof payload> = {}) =>
+  const payload: PreflightInput = { agentId, template, parameters: inputParameters, navigation: draft };
+  const check = (online: boolean, override: Partial<PreflightInput> = {}) =>
     preflightInstall(db, () => online, { ...payload, ...override });
 
   assert.throws(() => check(false), (error: unknown) => error instanceof ApiFailure && error.code === "AGENT_OFFLINE");
