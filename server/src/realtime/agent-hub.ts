@@ -113,6 +113,14 @@ export class AgentHub {
     if (!this.inventorySync || !this.isOnline(agentId) || this.inventoryEvents.has(agentId)) return;
     const timer = setTimeout(() => {
       this.inventoryEvents.delete(agentId);
+      if (!this.inventorySync || !this.isOnline(agentId)) return;
+      // A Docker event that arrives during a full scan must trigger a NEW
+      // scan after that one settles. Otherwise pending-task deduplication
+      // can absorb the event and a stale snapshot can overwrite its delta.
+      if (this.tasks.hasPendingInventoryRefresh(agentId)) {
+        this.scheduleInventoryChange(agentId);
+        return;
+      }
       this.refreshInventoryIfConnected(agentId);
     }, 1000);
     timer.unref();
