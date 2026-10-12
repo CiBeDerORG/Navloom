@@ -138,9 +138,16 @@ test("T-040: revoked homepage credentials and admin logout release only their ow
   const logout = await app.inject({ method: "POST", url: "/api/v1/auth/admin/logout",
     headers: { ...csrf, cookie: admin }, payload: {} });
   assert.equal(logout.statusCode, 200);
-  await eventually(async () => (await getSettings()).json().activePages === 0);
   await assert.rejects(connect(url, admin, origin), /HTTP 401/);
-  assert.equal((await getSettings()).json().mode, "manual", "credential invalidation must not erase global settings");
+  // Logout revokes the original admin cookie. Use a fresh observer session to
+  // read global presence, without opening another browser WebSocket.
+  const relogin = await app.inject({ method: "POST", url: "/api/v1/auth/admin/login",
+    headers: csrf, payload: { username: "admin", password: "test-admin-password-123" } });
+  assert.equal(relogin.statusCode, 200);
+  const observer = relogin.headers["set-cookie"] as string;
+  const observe = () => app.inject({ method: "GET", url: "/api/v1/admin/agents/probe-settings", headers: { cookie: observer } });
+  await eventually(async () => (await observe()).json().activePages === 0);
+  assert.equal((await observe()).json().mode, "manual", "credential invalidation must not erase global settings");
 });
 
 test("T-040: abrupt browser transport failure is removed without a close handshake", async (t) => {
