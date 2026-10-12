@@ -53,6 +53,15 @@ export class AgentTasks {
     return id;
   }
 
+  /** A Docker event must cause a fresh scan after an older in-flight scan
+   * settles; merging into that task could publish an out-of-date snapshot.
+   */
+  hasPendingInventoryRefresh(agentId: string): boolean {
+    return Boolean(this.db.sqlite.prepare(
+      "SELECT 1 FROM agent_tasks WHERE agent_id = ? AND operation = 'inventory_refresh' AND status = 'sent' AND deadline_at > ? LIMIT 1",
+    ).get(agentId, Date.now()));
+  }
+
   /** Inventory is read-only and runs only after an explicit admin request. */
   dispatchInventoryRefresh(agentId: string, socket: WebSocket): string {
     if (socket.readyState !== WebSocket.OPEN) throw new Error("Agent connection unavailable");
