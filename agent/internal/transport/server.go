@@ -254,7 +254,9 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 			case "container_start", "container_stop", "container_restart":
 				if journal == nil {
 					result, err := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "persistent journal unavailable")
-					if err != nil || send(result) != nil { return }
+					if err != nil || send(result) != nil {
+						return
+					}
 					continue
 				}
 				containerID := protocol.TaskContainerID(task)
@@ -263,29 +265,41 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 				})
 				if err != nil || !claimed {
 					result, failed := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "operation already claimed or journal unavailable")
-					if failed != nil || send(result) != nil { return }
+					if failed != nil || send(result) != nil {
+						return
+					}
 					continue
 				}
 				if err := probe.ControlContainer(ctx, protocol.TaskOperation(task), containerID); err != nil {
 					result, failed := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "Docker operation failed")
-					if failed != nil || send(result) != nil { return }
+					if failed != nil || send(result) != nil {
+						return
+					}
 					continue
 				}
 				result, err := protocol.NewOperationResult(identity.AgentID, task.TaskID, true)
-				if err != nil || send(result) != nil { return }
+				if err != nil || send(result) != nil {
+					return
+				}
 			case "container_logs":
 				lines, err := probe.ReadContainerLogs(ctx, protocol.TaskContainerID(task))
 				if err != nil {
 					result, failed := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "Docker logs unavailable")
-					if failed != nil || send(result) != nil { return }
+					if failed != nil || send(result) != nil {
+						return
+					}
 					continue
 				}
 				for idx, line := range lines {
 					entry, err := protocol.NewTaskLog(identity.AgentID, task.TaskID, idx, line)
-					if err != nil || send(entry) != nil { return }
+					if err != nil || send(entry) != nil {
+						return
+					}
 				}
 				result, err := protocol.NewOperationResult(identity.AgentID, task.TaskID, true)
-				if err != nil || send(result) != nil { return }
+				if err != nil || send(result) != nil {
+					return
+				}
 			case "inventory_refresh":
 				items, err := probe.ListContainers(ctx)
 				if err != nil {
