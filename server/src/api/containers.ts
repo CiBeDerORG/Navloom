@@ -102,6 +102,59 @@ export function registerContainerPool(app: FastifyInstance, db: DatabaseConnecti
     })) };
   });
 
+  // Side-effect actions are NEVER scheduled from discovery, page presence,
+  // or retries. Only an authenticated admin can initiate a known, recently
+  // scanned container ID with a unique persistent idempotency key.
+  app.post("/api/v1/admin/containers/:id/action", async (request, reply) => {
+    access.requireAdmin(request);
+    const id = deviceId.safeParse(request.params);
+    const body = z.object({
+      operation: z.enum(["start", "stop", "restart"]),
+      idempotencyKey: z.string().uuid(),
+    }).strict().safeParse(request.body);
+    if (!id.success || !body.success) throw new ApiFailure(400, "INVALID_INPUT", "容器操作参数无效");
+    const record = db.sqlite.prepare(
+      "SELECT ci.agent_id AS agentId, ci.container_id AS containerId, s.updated_at AS snapshotAt " +
+      "FROM container_inventory ci JOIN agent_inventory_snapshots s ON s.agent_id = ci.agent_id " +
+      "JOIN agents a ON a.id = ci.agent_id WHERE ci.id = ? AND a.revoked_at IS NULL",
+    ).get(id.data.id) as { agentId: string; containerId: string; snapshotAt: number } | undefined;
+    if (!record) throw new ApiFailure(404, "CONTAINER_NOT_FOUND", "容器不存在或设备已撤销");
+    if (Date.now() - record.snapshotAt > 5 * 60_000) {
+      throw new ApiFailure(409, "STALE_INVENTORY", "快照已过期；请先刷新确认容器状态");
+    }
+    const operation = ("container_" + body.data.operation) as "container_start" | "container_stop" | "container_restart";
+    const taskId = hub.requestContainerTask(record.agentId, operation, record.containerId, body.data.idempotencyKey);
+    reply.status(202);
+    return { taskId };
+  });
+
+  app.post("/api/v1/admin/containers/:id/logs", async (request, reply) => {
+    access.requireAdmin(request);
+    const id = deviceId.safeParse(request.params);
+    if (!id.success || !z.object({}).strict().safeParse(request.body).success) {
+      throw new ApiFailure(400, "INVALID_INPUT", "日志查询参数无效");
+    }
+    const record = db.sqlite.prepare(
+      "SELECT ci.agent_id AS agentId, ci.container_id AS containerId FROM container_inventory ci " +
+      "JOIN agents a ON a.id = ci.agent_id WHERE ci.id = ? AND a.revoked_at IS NULL",
+    ).get(id.data.id) as { agentId: string; containerId: string } | undefined;
+    if (!record) throw new ApiFailure(404, "CONTAINER_NOT_FOUND", "容器不存在");
+    const taskId = hub.requestContainerTask(record.agentId, "container_logs", record.containerId);
+    reply.status(202);
+    return { taskId };
+  });
+
+  app.get("/api/v1/admin/agent-tasks/:id/logs", async (request) => {
+    access.requireAdmin(request);
+    const id = deviceId.safeParse(request.params);
+    if (!id.success) throw new ApiFailure(400, "INVALID_INPUT", "任务 ID 无效");
+    const task = hub.tasks.getTask(id.data.id);
+    if (!task || task.operation !== "container_logs") {
+      throw new ApiFailure(404, "TASK_NOT_FOUND", "日志任务不存在");
+    }
+    return { taskId: task.id, status: task.status, lines: hub.tasks.getTaskLogs(task.id) };
+  });
+
   // Register an existing Compose project in Navloom without deploying,
   // starting, or modifying any Docker resource. Identity is stable across
   // container recreations: (Agent ID, Compose project), not container ID.
