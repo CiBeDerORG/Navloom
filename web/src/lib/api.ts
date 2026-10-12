@@ -172,3 +172,14 @@ export const claimComposeInstance = (agentId: string, composeProject: string) =>
   });
 export const unclaimComposeInstance = (id: string) =>
   request<{ ok: boolean }>("/admin/app-instances/" + encodeURIComponent(id), { method: "DELETE" });
+
+export const controlDockerContainer = (id: string, operation: "start" | "stop" | "restart", idempotencyKey: string) =>
+  request<{ taskId: string }>("/admin/containers/" + encodeURIComponent(id) + "/action", {
+    method: "POST", body: payload({ operation, idempotencyKey }),
+  });
+export const requestDockerLogs = (id: string) =>
+  request<{ taskId: string }>("/admin/containers/" + encodeURIComponent(id) + "/logs", { method: "POST", body: "{}" });
+export const getDockerTaskLogs = (taskId: string) =>
+  request<{ taskId: string; status: string; lines: Array<{ sequence: number; line: string }> }>(
+    "/admin/agent-tasks/" + encodeURIComponent(taskId) + "/logs",
+  );
