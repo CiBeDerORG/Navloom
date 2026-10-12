@@ -7,6 +7,7 @@ import { registerAgentPairing } from "./agent-pairing.js";
 import type { AgentHub } from "../realtime/agent-hub.js";
 import type { PagePresence } from "../realtime/page-presence.js";
 import { registerProbeSettings } from "./probe-settings.js";
+import { registerContainerPool } from "./containers.js";
 
 export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureCookies: boolean, hub: AgentHub, agentClientCertificatePem?: string, presence?: PagePresence): void {
   const access = new Access(db, secureCookies);
@@ -44,5 +45,6 @@ export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureC
   registerAuth(app, db, access);
   registerNavigation(app, db, access);
   registerAgentPairing(app, db, access, hub, agentClientCertificatePem, presence);
+  registerContainerPool(app, db, access, hub);
   if (presence) registerProbeSettings(app, access, presence);
 }
