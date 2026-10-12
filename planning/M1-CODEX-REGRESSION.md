@@ -20,7 +20,7 @@
 | 真 Docker | GitHub 托管临时 Runner 的专用容器：运行/停止发现、Compose labels、按 Agent 隔离、真实 stop/start/restart、日志脱敏、destroy 后自动对账 | 同 CI 日志含 M2 disposable real-Docker acceptance PASS；两个 Agent **共用一个 Docker daemon** |
 | 0 页面网络 | /proc/net/tcp* 显示无 ESTABLISHED TCP，末页关闭和整个自动心跳周期未重建连接 | **不是包级 0 字节抓包** |
 | 边界/竞态 | 高频 Docker 事件、旧扫描重对账、WS 并发 -race、Compose 重建隔离模拟 | [CI 38211154811](https://github.com/CiBeDerORG/Navloom/actions/runs/38211154811)，4/4 PASS |
-| 实浏览器 | scripts/m2-chromium.mjs 已加入 GitHub Runner CI，尝试真实 Chrome 口令与多页生命周期 | **仅以实际 Chrome CI PASS 与 M2 real Chromium PASS 日志为准；失败时写 FAIL，不得标通过** |
+| 实浏览器 | scripts/m2-chromium.mjs 已加入 GitHub Runner CI，尝试真实 Chrome 口令与多页生命周期 | 已在 [CI 38217607163](https://github.com/CiBeDerORG/Navloom/actions/runs/38217607163) 4/4 PASS；集成日志包含 M2 real Chromium PASS；仅证明隔离无头 Chrome（非跨设备浏览器） |
 
 ### 2. 26 项逐项交接矩阵
 
