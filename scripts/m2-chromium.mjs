@@ -128,10 +128,25 @@ export async function verifyChromiumPages({ temp, base, children, settings, port
       'Boolean(document.querySelector("#catalog-field-http_port"))'));
     assert.equal(await evaluate(catalogTab,
       'document.querySelector("#catalog-field-http_port").value'), "18080");
+    assert.equal(await evaluate(catalogTab,
+      'document.querySelector("#catalog-nav-title").value'), "Nginx");
+    assert.equal(await evaluate(catalogTab,
+      'document.querySelector("#catalog-nav-url").value'), "",
+      "browser must not invent an unverified EasyTier/Navloom URL");
+    await evaluate(catalogTab, '(async () => {' +
+      'const input=document.querySelector("#catalog-nav-url");' +
+      'const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set;' +
+      'set.call(input,"https://nav.example.test/");' +
+      'input.dispatchEvent(new Event("input",{bubbles:true}));' +
+      'await new Promise(done=>setTimeout(done,70));' +
+      '})()');
+    assert.equal(await evaluate(catalogTab,
+      'document.querySelector("#catalog-nav-url").value'), "https://nav.example.test/",
+      "administrator can edit the generated navigation URL before any task is saved");
     await until(async () => await pages() === 4);
     await closeTab(catalogTab);
     await until(async () => await pages() === 3);
-    console.log("M3 real Chromium catalog PASS: admin-only built-in template and schema-generated port input");
+    console.log("M3 real Chromium catalog PASS: admin-only template, dynamic port field and editable navigation URL");
 
     await closeTab(second);
     await until(async () => await pages() === 2);
