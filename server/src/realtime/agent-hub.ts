@@ -28,6 +28,7 @@ export class AgentHub {
   private readonly helloTimeoutMs: number;
   private inventorySync = false;
   private inventoryTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly inventoryEvents = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly pongTimeoutMs: number;
   readonly tasks: AgentTasks;
 
@@ -72,12 +73,26 @@ export class AgentHub {
     this.inventorySync = active;
     if (this.inventoryTimer) clearInterval(this.inventoryTimer);
     this.inventoryTimer = null;
-    if (!active) return;
+    if (!active) {
+      for (const timer of this.inventoryEvents.values()) clearTimeout(timer);
+      this.inventoryEvents.clear();
+      return;
+    }
     for (const agentId of this.sessions.keys()) this.refreshInventoryIfConnected(agentId);
     this.inventoryTimer = setInterval(() => {
       for (const agentId of this.sessions.keys()) this.refreshInventoryIfConnected(agentId);
     }, 120_000);
     this.inventoryTimer.unref();
+  }
+
+  private scheduleInventoryChange(agentId: string): void {
+    if (!this.inventorySync || !this.isOnline(agentId) || this.inventoryEvents.has(agentId)) return;
+    const timer = setTimeout(() => {
+      this.inventoryEvents.delete(agentId);
+      this.refreshInventoryIfConnected(agentId);
+    }, 1000);
+    timer.unref();
+    this.inventoryEvents.set(agentId, timer);
   }
 
   private refreshInventoryIfConnected(agentId: string): void {
@@ -155,6 +170,9 @@ export class AgentHub {
     const session = this.sessions.get(agentId);
     if (!session) return;
     this.sessions.delete(agentId);
+    const eventTimer = this.inventoryEvents.get(agentId);
+    if (eventTimer) clearTimeout(eventTimer);
+    this.inventoryEvents.delete(agentId);
     if (session.pendingProbe) clearTimeout(session.pendingProbe);
     if (session.helloTimeout) clearTimeout(session.helloTimeout);
     session.pendingProbe = null;
@@ -211,7 +229,7 @@ export class AgentHub {
     if (!parsed.success) { this.reject(session, 1008, "invalid protocol message"); return; }
     const message = parsed.data;
     if (message.agent_id !== session.agentId ||
-        !["hello", "task_result", "inventory_chunk"].includes(message.type) ||
+        !["hello", "task_result", "inventory_chunk", "inventory_changed"].includes(message.type) ||
         (message.type === "hello" && session.helloReceived) ||
         (message.type !== "hello" && !session.helloReceived) ||
         session.seenMessages.has(message.message_id)) {
@@ -232,6 +250,10 @@ export class AgentHub {
       // Connectivity Ping/Pong remains a separate global scheduler.
       this.refreshInventoryIfConnected(session.agentId);
       // Capability tasks require a separate explicit administrator request.
+    } else if (message.type === "inventory_changed") {
+      // No page means no Agent task, no DB heartbeat, and no fresh reconnect.
+      if (!this.inventorySync) return;
+      this.scheduleInventoryChange(session.agentId);
     } else if (message.type === "inventory_chunk") {
       if (!this.tasks.acceptInventoryChunk(session.agentId, message)) {
         this.reject(session, 1008, "inventory chunk rejected");
