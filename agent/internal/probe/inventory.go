@@ -71,6 +71,10 @@ func ListContainers(ctx context.Context) ([]protocol.ContainerRecord, error) {
 	if err != nil {
 		return nil, err
 	}
+	return listContainersAt(ctx, socket)
+}
+
+func listContainersAt(ctx context.Context, socket string) ([]protocol.ContainerRecord, error) {
 	info, err := os.Stat(socket)
 	if err != nil || info.Mode()&os.ModeSocket == 0 {
 		return nil, errors.New("Docker Unix socket unavailable")
