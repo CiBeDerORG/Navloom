@@ -51,7 +51,7 @@ func watchDockerEventsAt(ctx context.Context, socket string, notify func()) erro
 	latest := time.Time{}
 	for scanner.Scan() {
 		var event struct {
-			Type string `json:"Type"`
+			Type   string `json:"Type"`
 			Action string `json:"Action"`
 		}
 		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Type != "container" {
