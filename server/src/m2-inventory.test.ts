@@ -175,7 +175,7 @@ test("T-050: event arriving during a full scan schedules another reconciliation"
   t.after(() => { hub.shutdown(); db.close(); });
 
   class AgentPeer extends EventEmitter {
-    readyState = WebSocket.OPEN;
+    readyState: number = WebSocket.OPEN;
     sent: Array<{
       type: string;
       task_id: string;
