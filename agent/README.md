@@ -1,6 +1,6 @@
 # Navloom Agent · M2 反向按需 WSS（协议 v2）
 
-**当前开发状态**：Go Agent 已具备私网被动 WSS 监听、双向 TLS 客户端证书固定信任和只读能力探测。Server 按已登录页面在线情况主动建立连接；自动/手动连通性检测仅使用 WebSocket Ping/Pong，不发送周期 JSON 心跳。新架构的隔离 Go↔Node mTLS 联调已进入 CI，**尚未完成 Codex 独立验收**。
+**当前开发状态**：Go Agent 已具备私网被动 WSS、双向 TLS 固定信任、按页面在线情况启动的 Docker 容器发现、受控启停与短日志读取。连通性检测仅使用 WebSocket Ping/Pong；Docker 扫描/事件通知是另一类业务任务，**仅在至少一个已授权浏览页面在线期间运行**。隔离 CI 已覆盖核心流程，**真实 NAS 和 Codex 独立验收仍未完成**。
 
 > 旧主动连接已移除：没有私网监听端点及 TLS 的旧 Agent 无法正常启动，Server 也不再提供旧 `/agent` 入站。升级需安全重新配对；浏览器和真实 NAS 的独立验收仍待执行，请勿直接暴露公网。
 
@@ -55,8 +55,11 @@ go run ./cmd/navloom-agent -config ./agent-config.json
 - `-pair` 从标准输入读取一次性令牌，不接受命令行明文令牌参数；将设备 ID、凭据和 Server **公开客户端证书**保存在私有 `0600` 身份文件，拒绝覆盖。
 - 正常启动在指定 IP:端口被动监听 TLS 1.3 WSS `/agent`；只接受配对时固定的 Server 客户端证书，最多一个已认证连接。没有页面时 Agent 不主动发出任何请求或心跳。
 - Server 有至少一个已登录导航页/后台页面时按需拨号；多个浏览器共享一条 Agent 连接；管理员可切换自动/手动 Ping/Pong 检测，手动「检测连接」不触发 Docker 任务。
-- Agent 仅执行白名单中的只读 `capability_probe`；容器发现、启停、Compose 部署仍未开放。连接成功不代表 Docker 可用。
-- **任务防重放基础**：每条已认证的 Agent WSS 会话会记录本会话接受的 `task_id` 与 `message_id`，同一会话重放任一 ID 会被拒绝并以策略违规关闭连接；每会话最多接受 1024 个任务以限制内存。该去重记录**不是持久化的**，Agent 断线或重启会清空，因此目前仍只开放只读能力探测。未来 T-055 在启用任何 Docker 启停/Compose 变更命令前，必须增加跨会话/进程重启的持久执行幂等机制，禁止把本会话去重当作副作用操作安全保证。
+- Agent 白名单允许只读 `capability_probe`、`inventory_refresh` 和 `container_logs`；后者最多返回 100 行、每行 512 字节的日志。容器发现通过本机固定 Docker Unix Socket 执行 `GET /containers/json?all=1`，包含停用和先前存在的容器；快照按 20 条分块、原子更新，最多 2000 个容器。
+- 只有已认证页面在线时，Server 才会在 Agent 握手完成后执行只读自动容器对账、订阅该 Agent 的本地 Docker 容器事件、定期全量核对；**无页面立即断开 WSS、停止事件订阅/对账，不在后台继续上报**。容器池显示历史快照与过期标记。
+- 管理员可显式发起 `container_start` / `container_stop` / `container_restart`（基于已发现、快照不过期的容器），每次须确认；Server 持久化幂等请求键，Agent 在任何 Docker POST 前把任务 ID 和操作记录写入私有 `token_file.operations.jsonl` 并 `fsync`，进程崩溃后不会重复执行该任务。操作结果无法确认时以 `unknown` 保留，**绝不自动重试**。
+- **安全警告**：Docker Unix Socket 可以授予近似主机 root 的控制权限。只允许可信管理员及受控内网访问，不把 Socket 暴露到公网；禁用任意 shell、`docker exec`、`compose_deploy`。应用实例登记仅映射已发现的 Compose 项目，不自动安装容器或生成导航卡片。
+- **双层防重放**：每条已认证的 Agent WSS 会话记录 `task_id`/`message_id`（最多 1024 条）；额外针对有副作用的容器操作使用持久私有 Journal，跨 WSS 重连及 Agent 重启保留执行认领记录，避免同一个任务再次触发 Docker POST。日志文件必须可安全持久化；损坏或权限不符合要求时启动失败而非降级执行。**防重放仅保证同一任务至多尝试一次，不保证任何不确定的操作一定成功，也不能替代真正的 Docker 事务语义。**
 - `-check` 只检查配置的 Server TCP/TLS 可达性，不代表反向 Agent WSS 握手成功。仅显式设置 `allow_insecure_dev: true` 且 Server URL 为回环 `ws://` 时允许不加密配对开发。
 
 构建：`go test ./...`、`./scripts/build-linux.sh`。配置字段参考 [config.example.json](./config.example.json)，新架构与未完成项见 [M2 实施记录](../planning/M2-IMPLEMENTATION.md)。
