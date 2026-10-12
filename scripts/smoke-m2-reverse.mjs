@@ -352,16 +352,23 @@ try {
     assert.equal(unclaimedB.instanceId, null);
     assert.equal(unclaimedB.source, "external");
 
+    // Reconciliation replaces snapshot row UUIDs; always resolve the latest
+    // inventory ID rather than sending a command to a stale catalog row.
+    const current = async (containerId) => {
+      const row = (await containersFor(first.id)).find(entry => entry.containerId === containerId);
+      assert.ok(row, "fixture must remain discoverable");
+      return row.id;
+    };
     // Stop/start/restart are allowed only via an explicit admin action.
-    await execute(aRunning.id, "stop");
+    await execute(await current(fixture.running), "stop");
     await until(async () => docker(["inspect", "-f", "{{.State.Status}}", fixture.running]) === "exited");
-    await execute(aStopped.id, "start");
+    await execute(await current(fixture.stopped), "start");
     await until(async () => docker(["inspect", "-f", "{{.State.Status}}", fixture.stopped]) === "running");
-    await execute(aStopped.id, "restart");
+    await execute(await current(fixture.stopped), "restart");
     await until(async () => docker(["inspect", "-f", "{{.State.Status}}", fixture.stopped]) === "running");
 
     // Docker logs are bounded and must redact canary credentials.
-    const logsRequest = await call("/api/v1/admin/containers/" + aStopped.id + "/logs", "POST", {}, cookie);
+    const logsRequest = await call("/api/v1/admin/containers/" + await current(fixture.stopped) + "/logs", "POST", {}, cookie);
     await until(async () => (await taskStatus(logsRequest.payload.taskId)) === "succeeded");
     const logRows = (await call("/api/v1/admin/agent-tasks/" + logsRequest.payload.taskId + "/logs",
       "GET", undefined, cookie)).payload.lines;
