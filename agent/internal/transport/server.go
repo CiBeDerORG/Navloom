@@ -210,9 +210,29 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 			}
 			seenTasks[task.TaskID] = struct{}{}
 			seenMessages[task.MessageID] = struct{}{}
-			capabilities := probe.DiscoverDocker(ctx)
-			result, err := protocol.NewCapabilityResult(identity.AgentID, task.TaskID, capabilities)
-			if err != nil || writeMessage(conn, result) != nil {
+			switch protocol.TaskOperation(task) {
+			case "capability_probe":
+				capabilities := probe.DiscoverDocker(ctx)
+				result, err := protocol.NewCapabilityResult(identity.AgentID, task.TaskID, capabilities)
+				if err != nil || writeMessage(conn, result) != nil { return }
+			case "inventory_refresh":
+				items, err := probe.ListContainers(ctx)
+				if err != nil {
+					result, failure := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "Docker inventory unavailable")
+					if failure != nil || writeMessage(conn, result) != nil { return }
+					continue
+				}
+				chunks := 0
+				for offset := 0; offset < len(items); offset += 20 {
+					end := offset + 20
+					if end > len(items) { end = len(items) }
+					chunk, err := protocol.NewInventoryChunk(identity.AgentID, task.TaskID, chunks, items[offset:end])
+					if err != nil || writeMessage(conn, chunk) != nil { return }
+					chunks++
+				}
+				result, err := protocol.NewInventoryResult(identity.AgentID, task.TaskID, len(items), chunks)
+				if err != nil || writeMessage(conn, result) != nil { return }
+			default:
 				return
 			}
 		}
