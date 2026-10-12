@@ -143,6 +143,28 @@ export class AgentTasks {
     ).all(taskId) as Array<{ sequence: number; line: string }>;
   }
 
+  /** Apply safe, known event transitions to one Agent's historical row;
+   * a debounced full reconcile follows to correct ports, renames and gaps.
+   */
+  applyInventoryEvent(agentId: string, containerId: string, action: string): void {
+    if (!this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId)) return;
+    if (action === "destroy") {
+      this.db.sqlite.prepare("DELETE FROM container_inventory WHERE agent_id = ? AND container_id = ?")
+        .run(agentId, containerId);
+      return;
+    }
+    const state = ({
+      start: "running", restart: "restarting", unpause: "running",
+      pause: "paused", die: "exited", stop: "exited",
+      create: "created",
+    } as Record<string, string>)[action];
+    if (state) {
+      this.db.sqlite.prepare(
+        "UPDATE container_inventory SET state = ?, last_seen_at = ? WHERE agent_id = ? AND container_id = ?",
+      ).run(state, Date.now(), agentId, containerId);
+    }
+  }
+
   acceptInventoryChunk(agentId: string, message: InventoryChunk): boolean {
     const row = this.db.sqlite.prepare(taskSelect + " WHERE id = ?").get(message.task_id) as TaskRow | undefined;
     const pending = this.inventoryPending.get(message.task_id);
