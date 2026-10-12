@@ -21,7 +21,7 @@ export class AgentTasks {
     this.db.sqlite.prepare("UPDATE agent_tasks SET status = 'unknown' WHERE status = 'sent'").run();
   }
 
-  /** Only this fixed read-only operation is executable before Docker controls are implemented. */
+  /** Fixed read-only capability probe over authenticated WSS. */
   dispatchCapabilityProbe(agentId: string, socket: WebSocket): string {
     if (socket.readyState !== WebSocket.OPEN) throw new Error("Agent connection unavailable");
     const existing = this.db.sqlite.prepare(
@@ -80,6 +80,69 @@ export class AgentTasks {
     return id;
   }
 
+  /** Side-effect tasks require explicit admin action and a durable request UUID.
+   * A duplicate idempotency key only returns the original task; it never sends again.
+   */
+  dispatchContainerTask(
+    agentId: string, operation: "container_start" | "container_stop" | "container_restart" | "container_logs",
+    containerId: string, socket: WebSocket, idempotencyKey?: string,
+  ): string {
+    if (socket.readyState !== WebSocket.OPEN) throw new Error("Agent connection unavailable");
+    if (operation !== "container_logs" && !idempotencyKey) throw new Error("Idempotency key required");
+    if (idempotencyKey) {
+      const previous = this.db.sqlite.prepare(
+        "SELECT id, agent_id AS agentId, operation, arguments_json AS json FROM agent_tasks WHERE idempotency_key = ?",
+      ).get(idempotencyKey) as { id: string; agentId: string; operation: string; json: string } | undefined;
+      if (previous) {
+        if (previous.agentId !== agentId || previous.operation !== operation ||
+            (JSON.parse(previous.json) as { container_id: string }).container_id !== containerId) {
+          throw new Error("Idempotency key already used for another operation");
+        }
+        return previous.id;
+      }
+    }
+    const id = randomUUID();
+    const now = Date.now();
+    const args = { container_id: containerId };
+    this.db.sqlite.prepare(
+      "INSERT INTO agent_tasks (id, agent_id, operation, status, arguments_json, idempotency_key, created_at, dispatched_at, deadline_at) VALUES (?, ?, ?, 'sent', ?, ?, ?, ?, ?)",
+    ).run(id, agentId, operation, JSON.stringify(args), idempotencyKey ?? null, now, now, now + 45_000);
+    const msg = {
+      protocol_version: AGENT_PROTOCOL_VERSION, message_id: randomUUID(), agent_id: agentId,
+      sent_at: new Date().toISOString(), type: "task_dispatch", task_id: id,
+      payload: { operation, arguments: args },
+    };
+    try {
+      socket.send(JSON.stringify(msg), (error) => { if (error) this.markUnknown(id); });
+    } catch {
+      this.markUnknown(id);
+      throw new Error("Agent Docker task delivery not confirmed");
+    }
+    return id;
+  }
+
+  acceptTaskLog(agentId: string, message: Extract<AgentMessage, { type: "task_log" }>): boolean {
+    const row = this.db.sqlite.prepare(taskSelect + " WHERE id = ?").get(message.task_id) as TaskRow | undefined;
+    if (!row || row.agentId !== agentId || row.operation !== "container_logs" || row.status !== "sent" ||
+        row.deadlineAt <= Date.now() || message.payload.sequence > 99 ||
+        Buffer.byteLength(message.payload.line, "utf8") > 512 ||
+        !this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId)) return false;
+    try {
+      this.db.sqlite.prepare(
+        "INSERT INTO agent_task_logs (task_id, sequence, line, created_at) VALUES (?, ?, ?, ?)",
+      ).run(row.id, message.payload.sequence, message.payload.line, Date.now());
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  getTaskLogs(taskId: string): Array<{ sequence: number; line: string }> {
+    return this.db.sqlite.prepare(
+      "SELECT sequence, line FROM agent_task_logs WHERE task_id = ? ORDER BY sequence LIMIT 100",
+    ).all(taskId) as Array<{ sequence: number; line: string }>;
+  }
+
   acceptInventoryChunk(agentId: string, message: InventoryChunk): boolean {
     const row = this.db.sqlite.prepare(taskSelect + " WHERE id = ?").get(message.task_id) as TaskRow | undefined;
     const pending = this.inventoryPending.get(message.task_id);
@@ -96,7 +159,7 @@ export class AgentTasks {
 
   acceptResult(agentId: string, message: TaskResult): boolean {
     const row = this.db.sqlite.prepare(taskSelect + " WHERE id = ?").get(message.task_id) as TaskRow | undefined;
-    if (!row || row.agentId !== agentId || !["capability_probe", "inventory_refresh"].includes(row.operation)) return false;
+    if (!row || row.agentId !== agentId || !["capability_probe", "inventory_refresh", "container_start", "container_stop", "container_restart", "container_logs"].includes(row.operation)) return false;
     // A revoked Agent must never report a delayed completion, even if its
     // original task remains in the audit history.
     const activeAgent = this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId);
@@ -110,7 +173,7 @@ export class AgentTasks {
     if (row.operation === "capability_probe") {
       if (message.payload.success && !message.payload.capabilities) return false;
       if (message.payload.inventory_count !== undefined || message.payload.inventory_chunks !== undefined) return false;
-    } else {
+    } else if (row.operation === "inventory_refresh") {
       if (message.payload.capabilities) return false;
       const pending = this.inventoryPending.get(row.id);
       if (message.payload.success && (
@@ -121,6 +184,9 @@ export class AgentTasks {
       if (!message.payload.success &&
           (message.payload.inventory_count !== undefined || message.payload.inventory_chunks !== undefined)) return false;
     }
+    if (row.operation.startsWith("container_") &&
+        (message.payload.capabilities || message.payload.inventory_count !== undefined ||
+         message.payload.inventory_chunks !== undefined)) return false;
     if (!message.payload.success && message.payload.capabilities) return false;
     const now = Date.now();
     this.db.sqlite.transaction(() => {
