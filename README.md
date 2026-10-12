@@ -1,8 +1,8 @@
 # Navloom
 
-**Navloom** 是面向个人自托管场景的导航优先应用平台。首页只展示用户编排的导航卡片；云端 Server 管理导航、应用实例与多个设备 Agent。Agent 将来负责发现 Docker 容器及执行 Docker Compose 部署。M2 已移除旧 Agent 主动 WSS/JSON 心跳，改为 Server 按已登录页面主动连接 Agent 的私网双向 TLS WSS（协议 v2）；容器池尚未实现。
+**Navloom** 是面向个人自托管场景的导航优先应用平台。首页只展示用户编排的导航卡片；云端 Server 管理导航、应用实例与多个设备 Agent。Go Agent 已实现按需 Docker 容器发现与受控启停/日志；M3 正在实现可信模板与安全的远程 Compose 部署。Server 仅在有已登录页面在线时建立主动私网双向 TLS WSS（协议 v2），无人在线时停用 Agent 通信。
 
-> **当前状态：M0 已完成；M1 导航与双层访问控制已实现首批功能，正在验证与完善。M2 反向 WSS、私网 mTLS、已登录页面在线调度和手动/自动 Ping/Pong 已有代码及隔离 CI 联调；旧 Agent 主动接入路径已删除，Codex 独立验收尚未完成。容器池和 Docker 管理尚未实现，生产部署与完整安全审查在 M4。当前版本仅用于本地开发。**
+> **当前状态：M0 已完成；M1 主要功能已实现、仍待逐项验收；M2 反向 WSS、私网 mTLS、页面在线调度、真实 Docker/Compose 容器池已在隔离 Runner 自动化通过，但仍待 Codex 对真实 FNOS/NAS/跨设备网络完成正式验收；M3 正在开发可信模板、可编辑导航草稿与加密待部署任务。M3 的实际 Agent Compose 安装执行尚未开放。生产部署与完整安全审查在 M4。**
 
 ## 项目结构
 
@@ -10,9 +10,9 @@
 | --- | --- |
 | `web/` | Vue 3 + TypeScript + Vite，Tailwind CSS 4、shadcn-vue 组件约定 |
 | `server/` | Fastify + TypeScript、SQLite + Drizzle ORM |
-| `agent/` | Go Agent，Go 被动 mTLS WSS 监听与只读任务处理 |
+| `agent/` | Go 被动 mTLS WSS、Docker 发现/事件、受控容器操作；M3 安装执行器开发中 |
 | `packages/contracts/` | Web/Server 共享 API 类型与 Zod 运行时 Schema；Agent JSON 协议 v2 |
-| `apps/` | 可信应用模板目录（M3 实现） |
+| `templates/builtin/` | M3 内置审查版 YAML 应用模板（单服务/多服务） |
 | `deploy/` | 部署资料（M4 实现生产部署） |
 | `planning/` | [PRD、架构、路线图、114 项任务](./planning/README.md) |
 
@@ -70,7 +70,15 @@ docker compose -f compose.dev.yml up
 
 管理员登录「应用实例管理」，点击「生成一次性接入令牌」；该令牌 10 分钟内有效，只能使用一次。Go Agent 使用 `-pair` 从标准输入读取令牌，成功后在设备本地私有文件中保存独立身份凭据。具体命令见 [agent/README.md](./agent/README.md)。
 
-当前已提交反向私网 mTLS WSS、全局已登录页面按需连接和 Ping/Pong 设置、只读 Docker/Compose 能力探测；配对后还需正常启动 Agent，且至少一个已登录页面在线才会建立反向连接。旧版 Agent 需要重新配对才能接入。设备详情显示能力与不可用原因，可手动刷新。容器池和实际容器操作仍未实现；「在线」不代表「Docker 已可用」。
+已提交反向私网 mTLS WSS、全局已登录页面按需连接和 Ping/Pong 设置、Docker/Compose 能力探测、容器池快照/事件以及管理员受控启停/日志。配对后需启动 Agent，且至少一个有效登录页面在线才建立连接；设备显示在线并不表示 Docker 已可用。M2 仍待真实多设备独立验收。
+
+### M3 可信模板与加密安装草稿（开发中）
+
+管理员打开「应用实例管理」后，可浏览内置可信模板，选择已在线且 Docker/Compose 可用的 Agent，填写参数并编辑将来生成的导航名称、图标、分组和实际 URL。单纯预览**不落库、不调用 Docker**；预检包含架构、能力新鲜度、库存时间和已发现容器端口的冲突检查，不能保证部署时端口一定空闲。
+
+预检通过后，可以选择“加密保存待部署草稿”；任务状态为 **prepared（未执行）**，不会主动派发 Agent，也不会安装/更新容器。保存此草稿需要 Server 运行环境提供外部 **NAVLOOM_INSTALL_KEY**（32 字节随机值、标准无填充 base64url 编码）；没有密钥时拒绝保存并返回 503，不会回退到明文。密钥应通过容器/主机秘密管理安全注入，与 SQLite 数据库一起备份并妥善保管，**不要提交 Git、粘贴聊天、放入公开环境示例或打印到应用日志**。丢失此密钥将无法解密已保存的安装参数。
+
+实际的 Agent Compose 执行、任务日志、异常恢复与成功自动导航属于 M3 后续任务，**当前不能将保存草稿等同部署成功**。开发进度与任务依赖见 [M3 实施记录](./planning/M3-IMPLEMENTATION.md)。
 
 ### Go Agent
 
@@ -99,10 +107,10 @@ npm run build:agent       # 构建 Linux Agent（当前平台 Go 编译）
 
 ## 数据与安全边界
 
-- Server 可经可信 LAN/EasyTier 私网主动连接被动监听的 Agent；Agent 不暴露公网。旧 Agent 主动 WSS 代码仍待删除，迁移完成前不可宣称零页面零通信。
+- Server 通过可信 LAN/EasyTier 私网按已登录页面主动连接被动监听的 Agent；Agent 不暴露公网。隔离 Runner 零页面原始 TCP 报文测试已经通过，真实跨家庭 EasyTier 抓包仍待独立验收。
 - **导航卡片独立于容器/应用**，删除导航不会操作 Docker。
 - Compose `up` 退出码 0 定义为“部署成功”，不等于健康或网页可达。
-- M1 已提供首页只读导航和管理员认证/导航管理 API，未提供 Agent 或 Docker 操作 API。
+- M1 已提供首页只读导航和管理员认证/导航管理 API；M2 提供管理员 Agent 与受控 Docker API。M3 的真实应用 Compose 部署暂未开放。
 - 首页 Cookie 只允许读取导航并登记页面在线；设备管理、探测设置和 Docker API 仍要求管理员会话及 CSRF 保护。
 - 真实密码、Agent 令牌、数据库和环境文件不得提交到 Git。
 
