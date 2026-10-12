@@ -59,3 +59,17 @@
 **回归证据**：m3-secrets.test.ts、m3-preflight.test.ts、m3-prepared-tasks.test.ts 验证错误身份/篡改、持久化/重启、重复键及危险输入；scripts/smoke-m2-reverse.mjs 使用隔离 GitHub Runner 中两个真实 Go Agent、Node Server、SQLite 和临时真实 Docker，对在线预检、安全保存、秘密不反射、幂等键冲突、零 Docker 副作用作了端到端回归。正式 CI 结果只认 GitHub Actions 状态 completed/success，未跑或失败须补修。
 
 **仍待完成**：T-074/T-075 的安全任务派发与恢复，T-076～T-082 的受限 Go Compose 执行器、文件权限/日志/重连对账，T-083～T-088 的受管实例与自动导航幂等事务、最终实机验收。真实 NAS 或外部 CiBeDerORG/deploy 依旧没有被操作；如需改 deploy 必须先建独立分支。
+
+
+## 2026-10-12 第三轮：Go Agent 受限 Compose v2 执行器（未接入远程派发）
+
+**T-076 部分**：新增 agent/internal/deploy/executor.go。独立 Go 模块采用 Go JSON Decoder DisallowUnknownFields 和严格 Compose 安全白名单，限定 project 名称、固定镜像版本、最多 12 个服务、127.0.0.1 端口映射、命名卷、受控 env 键值与 restart 模式。拒绝额外特权、任意 command、host network、任意宿主挂载、Shell、未审查镜像，以及超大或异常 JSON。采用 exec.CommandContext 固定执行 docker compose -p <validated-project> -f <private-compose.json> up -d，不经过 Shell；默认超时 5 分钟。服务原始输出可能含密码，**不会直接输出到普通日志**。退出码按 CLI 原值传出，非零不改判。此模块与既有 Agent transport 隔离，尚未在 WSS 白名单中开放 compose_deploy。
+
+**T-077 部分**：Executor 要求 Agent 本机预置绝对路径的私有部署根（0700），每个 Compose project 使用独立 0700 子目录和 0600 compose.json，写入后执行 fsync。独立的 0600 claim ledger 在 Docker 副作用发生前写入任务 ID/project/digest 并 fsync；Linux flock 对同一 root 跨进程串行化，发生进程崩溃/CLI 失败/超时后同 task_id 不会再自动执行；另外同一 project 被另一 task_id 重新认领也被拒绝。后续仍需补持久化完成结果、明确恢复查询协议、资源清理策略和跨项目并发控制。为了防止受控目录中的符号链接重定向，lock 和 claim ledger 使用 Linux O_NOFOLLOW，根目录/Compose 子目录本身也不允许符号链接。
+
+**自动化覆盖**：
+- agent/internal/deploy/executor_test.go：恶意 Compose 属性、非法镜像、非回环端口、任意宿主卷、日志/锁符号链接、磁盘权限、失败退出码 17、同一 task_id 在 Executor 新实例下不重放、不同 task_id 不能重用项目、固定 Docker CLI 参数中不出现密码。
+- agent/internal/deploy/disposable_test.go：仅在 GitHub-hosted 一次性 Runner 配合 NAVLOOM_CI_DOCKER_FIXTURES 和 scratch 测试镜像时实际运行 Compose v2 up -d、检查容器存在、同 task_id 拒绝重复执行，并在测试结束后 docker compose down --remove-orphans；禁止外部 DOCKER_HOST。
+- scripts/smoke-m2-reverse.mjs：同一 CI 真实双 Agent、Node Server、Chrome、临时 Docker/Compose 及零页面抓包中调用上述真实 Go 执行器测试。证据 [GitHub Actions 38235600666](https://github.com/CiBeDerORG/Navloom/actions/runs/38235600666) **4/4 PASS**，日志含 M3 disposable Go Compose v2 executor PASS 与历史 M3 加密草稿/Agent 预检 PASS。CI 已将 internal/deploy 纳入 Go race 检测。
+
+**重要边界与后续顺序**：这是本地受限执行模块，**并非正式的远程安装成功**。T-074 仍须建立 Server 受控领取/明确管理员激活 API 与审查后的 Agent 协议信封；T-076/T-077 还需 Agent 侧身份/参数/目录全链路绑定；T-078～T-081 需要安全日志、fsync 任务最终结果回报和断线未知任务对账；T-083～T-088 需要唯一实例与唯一导航卡片事务。M3 29 项正式签核保持原状。CiBeDerORG/deploy 未修改，后续如需修改，先在 deploy 新建分支。
