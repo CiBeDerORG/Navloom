@@ -47,6 +47,6 @@ export function registerM1(app: FastifyInstance, db: DatabaseConnection, secureC
   registerNavigation(app, db, access);
   registerAgentPairing(app, db, access, hub, agentClientCertificatePem, presence);
   registerContainerPool(app, db, access, hub);
-  registerCatalog(app, access);
+  registerCatalog(app, access, db, hub);
   if (presence) registerProbeSettings(app, access, presence);
 }
