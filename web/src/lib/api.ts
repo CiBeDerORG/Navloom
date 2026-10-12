@@ -234,3 +234,18 @@ export const previewApplicationTemplate = (id: string, parameters: Record<string
   request<CatalogPreview>("/admin/catalog/templates/" + encodeURIComponent(id) + "/preview", {
     method: "POST", body: payload({ parameters }),
   });
+
+export type InstallationPreflight = {
+  ready: boolean; warnings: string[];
+  templateId: string; templateVersion: string; agentId: string;
+  navigation: NavigationDraft;
+  services: Array<{ name: string; image: string; ports: string[] }>;
+};
+export const preflightApplicationInstall = (data: {
+  agentId: string; templateId: string; templateVersion: string;
+  parameters: Record<string, string | number | boolean>;
+  navigation: NavigationDraft;
+}) =>
+  request<InstallationPreflight>("/admin/install/preflight", {
+    method: "POST", body: payload(data),
+  });
