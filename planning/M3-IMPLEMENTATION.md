@@ -36,3 +36,11 @@
 - 持续运行 npm 构建、类型检查、ESLint、Server/SQLite 测试，以及现有 M2 双 Go Agent、真实 Chrome、真 Docker/Compose 重建与零页面抓包 CI。
 - 下一阶段 T-068～T-070：秘密安全策略、可编辑导航草稿、动态表单完整验收；T-071～T-075：持久安装状态、幂等 API/Agent 离线策略；T-076～T-082：Agent Compose 执行、受限目录、日志与重连对账；T-083～T-088：唯一 AppInstance/单卡片事务、Web 任务页、并发限制和隔离实机测试。
 - **M3 尚未正式完成任何整项任务的独立验收；不能用功能代码存在或 CI 全绿冒充任务 PASS。**
+
+## 后续补充：安装任务状态机基础（T-071/T-073/T-079/T-081 部分）
+
+- 新增 server/src/install/tasks.ts：内部 InstallTaskStore 使用已存在的 SQLite install_tasks 表，不新增容器操作入口。reserve() 在同一个 SQLite 事务中按幂等请求键检查和写入，只允许未撤销且已登记的 Agent；冲突键不得指向其他 Agent/模板/版本。
+- 显式状态转移：pending → running 或 unknown；running → succeeded/failed/unknown；unknown → succeeded/failed；终态不能重新派发。相同退出码的终态重复回报是幂等读取，相反结果不可覆盖。
+- Docker Compose up 的退出码 0 代表部署成功，非 0 代表失败；丢失连接时标 unknown，绝不依据 HTTP/健康检查改判，也不把 unknown 重新设为 pending。
+- server/src/m3-install-state.test.ts 在隔离 SQLite 文件上关闭并重新打开 Server DB，验证 idempotency、唯一任务、跨重启状态、未知任务迟到结果、错误终态重放与非法转移。
+- **严格限制**：该模块目前没有管理员安装 POST API、秘密参数落库/加密、Agent 真 Compose 执行或成功自动生成导航，不能将内部状态机视为 T-071～T-088 完整实现，正式勾选仍为 0。
