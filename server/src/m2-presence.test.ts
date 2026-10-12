@@ -241,3 +241,46 @@ test("T-040/T-042: admin password rotation drops only admin browser presence whi
   assert.equal((await observe()).json().mode, "manual",
     "closing the final page must not rewrite the persisted probe mode");
 });
+
+test("T-040/T-041/T-054: zero pages preserves the last Agent result and labels it paused, not offline", async (t) => {
+  const { app, db, admin, home, getSettings, url, origin } = await setup(t);
+  const agentId = randomUUID();
+  const lastSeen = Date.now() - 60_000;
+  db.sqlite.prepare(
+    "INSERT INTO agents (id, name, endpoint_host, endpoint_port, last_seen_at) VALUES (?, ?, ?, ?, ?)",
+  ).run(agentId, "historical-nas", "10.10.10.2", 9443, lastSeen);
+
+  const details = async () => {
+    const result = await app.inject({
+      method: "GET", url: "/api/v1/admin/agents/" + agentId,
+      headers: { cookie: admin },
+    });
+    assert.equal(result.statusCode, 200);
+    return result.json().agent as { status: string; lastSeenAt: number; connectedAt: number | null };
+  };
+  assert.equal((await getSettings()).json().activePages, 0);
+  assert.deepEqual(await details(), {
+    ...(await details()),
+    status: "paused", lastSeenAt: lastSeen, connectedAt: null,
+  });
+
+  // A home-only tab counts as a logged-in page. Without an mTLS Server
+  // identity the dialer must fail closed rather than fabricate a connection.
+  const homePage = await connect(url, home, origin);
+  t.after(() => homePage.terminate());
+  assert.equal((await getSettings()).json().activePages, 1);
+  assert.equal((await details()).lastSeenAt, lastSeen);
+  homePage.close();
+  await new Promise<void>((done) => homePage.once("close", done));
+
+  assert.equal((await getSettings()).json().activePages, 0);
+  const frozen = await details();
+  assert.equal(frozen.status, "paused", "absence of a page is not an Agent health failure");
+  assert.equal(frozen.lastSeenAt, lastSeen, "closing the last page cannot refresh or erase history");
+  assert.equal(frozen.connectedAt, null);
+  const denied = await app.inject({
+    method: "POST", url: "/api/v1/admin/agents/probe",
+    headers: { ...csrf, cookie: admin }, payload: {},
+  });
+  assert.equal(denied.statusCode, 409, "no page may trigger a manual Agent Ping");
+});
