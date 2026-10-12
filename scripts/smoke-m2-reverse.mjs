@@ -392,6 +392,15 @@ try {
     const duplicate = await call("/api/v1/admin/install/prepared-tasks", "POST", preparedBody, cookie);
     assert.equal(duplicate.payload.taskId, saved.payload.taskId);
     assert.equal(duplicate.payload.created, false);
+    const preparedIndex = await call("/api/v1/admin/install/prepared-tasks", "GET", undefined, cookie);
+    assert.ok(preparedIndex.payload.tasks.some(task => task.id === saved.payload.taskId &&
+      task.status === "prepared" && task.navigationTitle === "Adminer test"));
+    assert.equal(JSON.stringify(preparedIndex.payload).includes(preflightBody.parameters.db_password), false,
+      "prepared task list must never expose secret installation parameters");
+    const unauthorizedPrepared = await fetch(base + "/api/v1/admin/install/prepared-tasks", {
+      headers: { cookie: homeCookie },
+    });
+    assert.equal(unauthorizedPrepared.status, 401, "homepage credential cannot read staged tasks");
     const rejected = await fetch(base + "/api/v1/admin/install/prepared-tasks", {
       method: "POST", headers: { cookie, "x-navloom-csrf": "1", "content-type": "application/json" },
       body: JSON.stringify({ ...preparedBody, parameters: {
