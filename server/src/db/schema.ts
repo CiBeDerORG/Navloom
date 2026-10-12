@@ -148,3 +148,10 @@ export const agentCapabilities = sqliteTable("agent_capabilities", {
   capabilitiesJson: text("capabilities_json").notNull(),
   checkedAt: integer("checked_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+export const agentInventorySnapshots = sqliteTable("agent_inventory_snapshots", {
+  agentId: text("agent_id").primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  containerCount: integer("container_count").notNull(),
+  taskId: text("task_id").notNull(),
+});
