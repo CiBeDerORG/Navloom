@@ -34,6 +34,7 @@ export const AgentCommandSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("container_start"), arguments: z.object({ container_id: containerId }).strict() }).strict(),
   z.object({ operation: z.literal("container_stop"), arguments: z.object({ container_id: containerId }).strict() }).strict(),
   z.object({ operation: z.literal("container_restart"), arguments: z.object({ container_id: containerId }).strict() }).strict(),
+  z.object({ operation: z.literal("container_logs"), arguments: z.object({ container_id: containerId }).strict() }).strict(),
   z.object({
     operation: z.literal("compose_deploy"),
     arguments: z.object({
