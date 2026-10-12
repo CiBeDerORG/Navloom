@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import {
   getAgentInventories, getContainerPool, getDeployedAppInstances, refreshAgentInventory,
   getAgentTask, claimComposeInstance, unclaimComposeInstance,
+  controlDockerContainer, requestDockerLogs, getDockerTaskLogs,
   type AgentInventoryState, type PoolContainer, type DeployedAppInstance,
 } from "../lib/api";
 
@@ -19,6 +20,7 @@ const busy = ref("");
 const notice = ref("");
 const error = ref("");
 const selectedId = ref("");
+const logs = ref<string[]>([]);
 const selected = computed(() => containers.value.find(c => c.id === selectedId.value));
 const perPage = 50;
 
@@ -84,6 +86,47 @@ async function unclaim(id: string) {
     notice.value = "已取消登记，原有容器保持不变";
     await load();
   } catch (cause) { error.value = cause instanceof Error ? cause.message : "取消关联失败"; }
+  finally { busy.value = ""; }
+}
+async function operate(row: PoolContainer, action: "start" | "stop" | "restart") {
+  if (busy.value || row.historical || row.stale) return;
+  if (!window.confirm("确定对 " + row.agentName + " / " + row.name + " 执行 " + action +
+    "？这是会修改真实 Docker 状态的操作，不会自动重试。")) return;
+  busy.value = row.id;
+  notice.value = "";
+  error.value = "";
+  try {
+    const { taskId } = await controlDockerContainer(row.id, action, crypto.randomUUID());
+    notice.value = "已提交 " + action + " 操作，任务 " + taskId.slice(0, 8) + "；操作结果未知时不会重放";
+    for (let i = 0; i < 20; i++) {
+      await new Promise(resolve => setTimeout(resolve, 700));
+      const response = await getAgentTask(taskId);
+      if (response.task.status !== "sent") {
+        notice.value = "容器操作结果：" + response.task.status + "（" + taskId.slice(0, 8) + "）";
+        break;
+      }
+    }
+    await load();
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : "Docker 操作失败"; }
+  finally { busy.value = ""; }
+}
+async function inspectLogs(row: PoolContainer) {
+  if (busy.value || row.historical) return;
+  busy.value = row.id;
+  logs.value = [];
+  error.value = "";
+  try {
+    const { taskId } = await requestDockerLogs(row.id);
+    for (let i = 0; i < 18; i++) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const response = await getDockerTaskLogs(taskId);
+      logs.value = response.lines.map(line => line.line);
+      if (response.status !== "sent") {
+        if (response.status !== "succeeded") notice.value = "日志查询：" + response.status;
+        break;
+      }
+    }
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : "读取容器日志失败"; }
   finally { busy.value = ""; }
 }
 function query() { offset.value = 0; void load(); }
@@ -153,6 +196,15 @@ onMounted(() => { void load(); });
         :disabled="!!busy" class="mt-2 rounded-lg border border-sky-500/40 px-3 py-1 text-xs disabled:opacity-40"
         @click="claim(selected)">登记此 Compose 应用实例</button>
       <pre class="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-all text-xs text-slate-400">{{ JSON.stringify(selected.labels, null, 2) }}</pre>
+      <div class="mt-3 flex flex-wrap gap-2" v-if="!selected.historical">
+        <button v-for="action in (['start', 'stop', 'restart'] as const)" :key="action"
+          class="rounded-lg border border-amber-500/40 px-3 py-1 text-xs disabled:opacity-40"
+          :disabled="!!busy || selected.stale" @click="operate(selected, action)">{{ action }}</button>
+        <button class="rounded-lg border border-white/20 px-3 py-1 text-xs disabled:opacity-40"
+          :disabled="!!busy" @click="inspectLogs(selected)">查看最近 100 行日志</button>
+      </div>
+      <p v-if="selected.stale" class="mt-2 text-xs text-amber-300">快照过期，需先扫描确认，才可操作 Docker。</p>
+      <pre v-if="logs.length" class="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-950 p-3 text-xs text-slate-300">{{ logs.join('\n') }}</pre>
     </div>
     <div class="flex justify-between gap-2">
       <button class="rounded-lg border border-white/20 px-3 py-1 text-sm disabled:opacity-40" :disabled="loading || offset === 0" @click="offset = Math.max(0, offset - perPage); load()">上一页</button>
