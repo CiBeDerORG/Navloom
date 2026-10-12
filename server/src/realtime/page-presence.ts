@@ -74,6 +74,7 @@ export class PagePresence {
     socket.on("error", () => this.remove(page));
     socket.send(JSON.stringify({ type: "probe_settings", settings: this.settings() }));
     if (first) {
+      this.hub.setInventorySyncActive(true);
       this.dialer.setActive(true);
       this.sweep = setInterval(() => this.verifyPages(), this.options.sweepIntervalMs ?? 15_000);
       this.sweep.unref();
@@ -88,6 +89,7 @@ export class PagePresence {
     this.sweep = null;
     if (this.autoProbe) clearInterval(this.autoProbe);
     this.autoProbe = null;
+    this.hub.setInventorySyncActive(false);
     this.dialer.setActive(false);
   }
 
