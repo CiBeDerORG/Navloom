@@ -163,3 +163,9 @@ export const agentTaskLogs = sqliteTable("agent_task_logs", {
   line: text("line").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 }, (table) => [uniqueIndex("agent_task_logs_task_sequence_uq").on(table.taskId, table.sequence)]);
+
+export const agentInventorySettings = sqliteTable("agent_inventory_settings", {
+  id: text("id").primaryKey(),
+  intervalMs: integer("interval_ms").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
