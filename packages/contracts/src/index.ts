@@ -60,6 +60,24 @@ export const AgentCapabilitiesSchema = z.object({
 }).strict();
 export type AgentCapabilities = z.infer<typeof AgentCapabilitiesSchema>;
 
+export const AgentContainerSchema = z.object({
+  container_id: z.string().regex(/^[a-f0-9]{12,64}$/),
+  name: z.string().min(1).max(255),
+  image: z.string().min(1).max(512),
+  state: z.enum(["running", "exited", "paused", "restarting", "created", "dead", "unknown"]),
+  ports: z.array(z.object({
+    private_port: z.number().int().min(1).max(65535),
+    public_port: z.number().int().min(1).max(65535).nullable(),
+    protocol: z.enum(["tcp", "udp", "sctp"]),
+    ip: z.string().max(64).nullable(),
+  }).strict()).max(128),
+  labels: z.record(z.string().max(256)).refine(v => Object.keys(v).length <= 16),
+  compose_project: z.string().max(128).nullable(),
+  compose_service: z.string().max(128).nullable(),
+}).strict();
+export type AgentContainer = z.infer<typeof AgentContainerSchema>;
+
+
 
 const envelope = {
   protocol_version: z.literal(AGENT_PROTOCOL_VERSION),
@@ -87,6 +105,15 @@ export const AgentMessageSchema = z.discriminatedUnion("type", [
   }).strict(),
   z.object({
     ...envelope,
+    type: z.literal("inventory_chunk"),
+    task_id: z.string().uuid(),
+    payload: z.object({
+      sequence: z.number().int().min(0).max(99),
+      containers: z.array(AgentContainerSchema).max(20),
+    }).strict(),
+  }).strict(),
+  z.object({
+    ...envelope,
     type: z.literal("task_log"),
     task_id: z.string().uuid(),
     payload: z.object({ sequence: z.number().int().nonnegative(), line: z.string() }).strict(),
@@ -100,6 +127,8 @@ export const AgentMessageSchema = z.discriminatedUnion("type", [
       exit_code: z.number().int().nullable(),
       error: z.string().max(300).optional(),
       capabilities: AgentCapabilitiesSchema.optional(),
+      inventory_count: z.number().int().min(0).max(2000).optional(),
+      inventory_chunks: z.number().int().min(0).max(100).optional(),
     }).strict(),
   }).strict(),
 ]);
