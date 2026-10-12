@@ -67,6 +67,8 @@ watch(parameters, () => {
 }, { deep: true });
 watch(agentId, () => { preview.value = null; approved.value = false; });
 
+onMounted(() => { void loadCatalog(); });
+
 function setValue(key: string, value: string | boolean, type: string) {
   if (type === "integer") {
     // Keep invalid numeric text out of the preview request. The form still
