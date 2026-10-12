@@ -36,13 +36,17 @@ func RunPassive(ctx context.Context, cfg config.Config, identity pairing.Identit
 	if err != nil {
 		return err
 	}
+	journal, err := openOperationJournal(cfg.TokenFile + ".operations.jsonl")
+	if err != nil {
+		return fmt.Errorf("secure Docker operation journal unavailable: %w", err)
+	}
 	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.EndpointHost, strconv.Itoa(cfg.EndpointPort)))
 	if err != nil {
 		return fmt.Errorf("listen on private Agent endpoint: %w", err)
 	}
 	defer listener.Close()
 	server := &http.Server{
-		Handler:           passiveHandler(ctx, identity, version, log),
+		Handler:           passiveHandler(ctx, identity, version, log, journal),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -118,7 +122,11 @@ func hasExtKeyUsage(cert *x509.Certificate, wanted x509.ExtKeyUsage) bool {
 	return false
 }
 
-func passiveHandler(ctx context.Context, identity pairing.Identity, version string, log *slog.Logger) http.Handler {
+func passiveHandler(ctx context.Context, identity pairing.Identity, version string, log *slog.Logger, journals ...*operationJournal) http.Handler {
+	var journal *operationJournal
+	if len(journals) > 0 {
+		journal = journals[0]
+	}
 	var mu sync.Mutex
 	active := false
 	upgrader := websocket.Upgrader{
@@ -243,6 +251,41 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 				if err != nil || send(result) != nil {
 					return
 				}
+			case "container_start", "container_stop", "container_restart":
+				if journal == nil {
+					result, err := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "persistent journal unavailable")
+					if err != nil || send(result) != nil { return }
+					continue
+				}
+				containerID := protocol.TaskContainerID(task)
+				claimed, err := journal.claim(journalEntry{
+					TaskID: task.TaskID, Operation: protocol.TaskOperation(task), ContainerID: containerID,
+				})
+				if err != nil || !claimed {
+					result, failed := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "operation already claimed or journal unavailable")
+					if failed != nil || send(result) != nil { return }
+					continue
+				}
+				if err := probe.ControlContainer(ctx, protocol.TaskOperation(task), containerID); err != nil {
+					result, failed := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "Docker operation failed")
+					if failed != nil || send(result) != nil { return }
+					continue
+				}
+				result, err := protocol.NewOperationResult(identity.AgentID, task.TaskID, true)
+				if err != nil || send(result) != nil { return }
+			case "container_logs":
+				lines, err := probe.ReadContainerLogs(ctx, protocol.TaskContainerID(task))
+				if err != nil {
+					result, failed := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "Docker logs unavailable")
+					if failed != nil || send(result) != nil { return }
+					continue
+				}
+				for idx, line := range lines {
+					entry, err := protocol.NewTaskLog(identity.AgentID, task.TaskID, idx, line)
+					if err != nil || send(entry) != nil { return }
+				}
+				result, err := protocol.NewOperationResult(identity.AgentID, task.TaskID, true)
+				if err != nil || send(result) != nil { return }
 			case "inventory_refresh":
 				items, err := probe.ListContainers(ctx)
 				if err != nil {
