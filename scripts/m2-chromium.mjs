@@ -43,15 +43,20 @@ export async function verifyChromiumPages({ temp, base, children, settings, port
     const request = pending.get(msg.id);
     if (!request) return;
     pending.delete(msg.id);
+    clearTimeout(request.timer);
     if (msg.error) request.reject(new Error("CDP " + JSON.stringify(msg.error)));
     else request.resolve(msg.result ?? {});
   });
   function send(method, params = {}, sessionId) {
     const id = ++nextId;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error("Chrome CDP request timed out: " + method));
+      }, 12000);
+      pending.set(id, { resolve, reject, timer });
       cdp.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }), (error) => {
-        if (error) { pending.delete(id); reject(error); }
+        if (error) { clearTimeout(timer); pending.delete(id); reject(error); }
       });
     });
   }
