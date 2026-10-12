@@ -200,7 +200,7 @@ npm run test:go
 在继续保留 T-034～T-047 反向按需 WSS 架构和 **0 页面无 Agent↔Server 通信** 前提下，已新增以下实现：
 
 - **T-048/T-049/T-051**：Go Agent 使用限定 Docker Unix Socket 的固定只读 HTTP API `GET /containers/json?all=1` 一次列举启动前已存在、运行中与已停止容器（不依赖 Agent 启动后的事件）。采集容器 ID、名称、镜像、规范化状态/端口、仅允许的 Compose project/service labels（不上传其他 Docker labels）。最多 2,000 个容器，按 20 条一段发送严格 v2 `inventory_chunk`，Server 验证 Agent ID、task_id、顺序/总数并使用单事务替换快照；断线、失败、重复/越权片段不覆盖旧快照。记录独立全量扫描时间和 count。实现出于安全最小化使用 Docker Unix HTTP 协议而非引入 Docker SDK，接口与 Docker API 兼容。
-- **T-050**：仅在至少一个有效页面在线的 WSS 生命周期内，Go Agent 订阅本地 Docker `/events`，对 container create/start/stop/die/destroy/rename/pause/unpause/restart/update 变更发通知；Server 1 秒防抖后发起只读全量校正。另按全局管理员可配置（30 秒至 1 小时）的间隔进行全量核对；首次连接也全量扫描；最后页面离开后取消事件监听、对账定时器与所有 Agent WSS。**当前事件策略是触发全量收敛，不是逐容器 delta patch；仍须大量容器实测和性能验收。**
+- **T-050**：仅在至少一个有效页面在线的 WSS 生命周期内，Go Agent 订阅本地 Docker `/events`，对 container create/start/stop/die/destroy/rename/pause/unpause/restart/update 变更发通知；Server 1 秒防抖后发起只读全量校正。另按全局管理员可配置（30 秒至 1 小时）的间隔进行全量核对；首次连接也全量扫描；最后页面离开后取消事件监听、对账定时器与所有 Agent WSS。**已知容器事件先按 Agent/容器 ID 增量修正状态或删除记录，再经 Server 防抖进行全量核对，新增容器及端口/名称仍由扫描补齐。Agent 不再以全局 500ms 节流丢弃快速连续事件；事件发生时如旧扫描未结束，会在旧扫描结束后再安排一次新扫描，避免 pending 去重吞掉对账。仍需大量容器与实际网络的压力验收。**
 - **T-052～T-054**：管理员 `/admin/containers` 支持 Agent、状态、来源、名称/镜像搜索、分页与详情；`/admin/agent-inventory` 返回快照时间、容器数、实时/历史/过期标志；`AdminInstancesView` 内有响应式容器池、扫描、来源筛选和空状态。0 页面历史数据保持不变，不向首页自动推送。
 - **T-055**：管理员对已发现且 5 分钟内快照未过期的单个容器显式确认才可提交 `container_start/stop/restart`。Server 保存幂等 UUID 与任务、旧请求只返回旧 task_id，不重发；Agent 仅固定 Docker Unix Socket 的 POST `/containers/{hexId}/{start|stop|restart}`，先在私有 `token_file.operations.jsonl` 中持久认领任务并 fsync。断连/进程崩溃未能确认结果保留 `unknown`，**不自动重试**；绝无容器删除、任意 shell、Docker exec 或未经审计的 Compose 部署。受控操作只在管理员明确触发时发生；隔离测试不接触真实 NAS/Docker。
 - **T-056/T-057**：已有 `app_instances` 模型配合新增管理员实例列表/详情/登记/取消登记 API。稳定关联 Agent ID + Compose project（跨容器重建）；发现外部容器不会自动登记。管理员可手动关联现有 Compose 项目，`template_id=external` 的记录仍视为外部来源。取消目录登记不会停止/删除 Docker 容器。
@@ -208,3 +208,10 @@ npm run test:go
 - **T-059**：`agent/internal/probe/inventory_test.go`、`control_test.go`、`events_test.go`、`transport/journal_test.go` 和 `server/src/m2-inventory.test.ts`、`m2-container-operations.test.ts` 覆盖隔离 Unix Docker API（包括启动前已存在与停止容器）、秘密 label 过滤、管理员权限、A/B 隔离、原子快照/空快照、快照过期、Compose 关联、幂等键冲突/跨重启不重复下发、日志绑定与限量、基本动作路径/非法命令拒绝。页面可从容器池**手动填写访问 URL**生成导航卡片，绝不推测地址或修改 Docker。
 
 **阶段边界**：CI 是自动化代码回归，不是 Codex 独立验收。真实 NAS 的 Docker 权限、跨设备首页/WSS 生命周期、Docker 大规模事件与日志、TLS 轮换、包级 0 页面通信以及真实容器启停与重建验证仍不能伪称 PASS。T-048～T-059 现有代码功能覆盖不等于任务验收状态为完成，验收复选框保留待执行；未获取真实 NAS 或运行中 Docker 的操作授权。
+
+## 2026-10-12 T-050 事件并发与对账修复（自动化证据，非独立验收）
+
+- **连续事件不丢失**：移除 Go `WatchDockerEvents` 全局 500ms 静默节流，`events_test.go` 新增同一容器 rapid start/stop 与另一容器 destroy 的完整有序通知测试；Server 仍对高成本全量扫描做每 Agent 1 秒防抖。提交 `d703ad8`、`f4844bd`；[CI 38210360821](https://github.com/CiBeDerORG/Navloom/actions/runs/38210360821) **4/4 通过**。
+- **扫描中事件不被旧任务吞并**：`AgentTasks.hasPendingInventoryRefresh` 检测正在执行的扫描；Server 的 Docker 事件重对账会在旧扫描完成后重新派发，直到连接结束或任务过期。`m2-inventory.test.ts` 模拟 event 与旧扫描竞态、旧扫描完成后新任务独立发送，以及最后一个页面退出时停止派发、未决任务转 `unknown`。提交 `e669371`、`fe52c0f`、`4fd54b0`；[CI 38210779521](https://github.com/CiBeDerORG/Navloom/actions/runs/38210779521) **4/4 通过**。
+- **并发竞争检测纳入 CI**：Go Agent 工作流除常规单测外执行 `go test -race ./internal/probe ./internal/transport`，针对本地 Docker 事件读取与 Agent WSS 传输的现有测试启用数据竞争检测。提交 `6672080`；[CI 38210899055](https://github.com/CiBeDerORG/Navloom/actions/runs/38210899055) **4/4 通过**。
+- **边界**：以上都是隔离自动化，不是 Go 事件高负载压测、真实 NAS、实际 Docker 容器重建、跨设备浏览器或包级零通信抓包。T-050/T-059 及相关 E 组复选框保持未验收，不将 CI 绿色视为完整 M2 PASS。
