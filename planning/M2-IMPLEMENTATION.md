@@ -162,3 +162,10 @@ npm run test:go
 - 新增 Server 回归：普通导航页与管理员页面同时在线时撤销首页凭据，只回收前者；管理员退出后最终归零；无关闭握手的浏览器进程断开回收；零页面的管理员 Ping API 返回 409。管理员首页有效性由既有 `GET /api/v1/auth/home/status` 同时识别管理员会话，不需要第二套登录检查。
 - 把检测模式/间隔/手动按钮从 `AdminInstancesView` 提升为公共 `AdminShell` 中的 `AgentProbeControls.vue`：导航页管理、应用实例管理、安全设置均可修改同一条 SQLite 全局配置。组件只操作已有管理员 API、通过现有浏览器页面 WS 接收配置广播，**不建立另一条 Agent WSS 或第二个全局心跳调度器**。普通首页口令导航页仍只登记在线，不取得任何管理权限。
 - 相关提交：`bdd6c995`、`41d643db`、`ab4ee4a4`、`c6288a13`、`5a448669`、`c890f2cd`。自动化验证以当前 main SHA 对应的 CI 结果为准，**Codex 独立验收和真实网络抓包依旧 NOT_RUN**，不可因新增测试或页面就勾选 T-040～T-042。
+
+## T-043～T-047 安全子集补强（2026-10-12；待独立验收）
+
+- **任务结果校验**：`AgentTasks.acceptResult` 不再对任何已完成的 task_id 无条件回报成功。只有与已持久化 payload **结构一致**的重复结果才幂等接受；冲突成功/失败/能力结果返回拒绝，Hub 将按协议违规关闭相应连接并记录无秘密审计。Agent 撤销后，包括原本合法任务的迟到结果，均不能再写入任务或能力快照；其他 Agent 的结果不受影响。
+- **断开/超时/重启**：隔离 Node 测试增加 A/B task_id 定向隔离、同设备任务发送去重、断连后 `unknown`、未撤销设备迟到结果关联、deadline 过期 `unknown`、Server 新实例构建时把未完成 `sent` 迁移为 `unknown`，并确认**不重新投递**旧命令。
+- **唯一 Ping/Pong 超时**：Hub 维持生产默认 10 秒 Pong 超时，新注入参数仅供隔离测试模拟无 Pong 的 Agent；待定 Ping 不叠加，A 超时后只关闭 A、A 未决任务转 `unknown`，B 仍在线且其任务不变；迟到 Pong 不能让已断开的 A 复活；Ping 不修改 SQLite 历史业务时间。
+- 对应文件：`server/src/realtime/agent-tasks.ts`、`server/src/realtime/agent-hub.ts`、`server/src/m2-task-recovery.test.ts`、`server/src/m2-pong-timeout.test.ts`。代码及回归不等于真实 NAS 抓包、真实 Docker 操作或 Codex 独立 PASS；原任务复选框保持不变。
