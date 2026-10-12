@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,23 +20,26 @@ func TestDockerEventsProduceOnlyContainerChangeNotifications(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintln(w, `{"Type":"network","Action":"connect"}`)
-		_, _ = fmt.Fprintln(w, `{"Type":"container","Action":"start"}`)
+		_, _ = fmt.Fprintf(w, "{\"Type\":\"container\",\"Action\":\"start\",\"Actor\":{\"ID\":\"%s\"}}\\n", strings.Repeat("a", 64))
 		w.(http.Flusher).Flush()
 		<-r.Context().Done()
 		writes <- struct{}{}
 	})
-	changed := make(chan struct{}, 1)
+	changed := make(chan ContainerEvent, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- watchDockerEventsAt(ctx, socket, func() {
+		done <- watchDockerEventsAt(ctx, socket, func(event ContainerEvent) {
 			select {
-			case changed <- struct{}{}:
+			case changed <- event:
 			default:
 			}
 		})
 	}()
 	select {
-	case <-changed:
+	case event := <-changed:
+		if event.ContainerID != strings.Repeat("a", 64) || event.Action != "start" {
+			t.Fatalf("invalid Docker event: %+v", event)
+		}
 		cancel()
 	case <-time.After(3 * time.Second):
 		cancel()
