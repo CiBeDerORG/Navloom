@@ -135,6 +135,22 @@ test("T-052/T-054/T-057: admin-only pool filters and stable Compose association"
   assert.equal(query.json().containers[0].historical, true);
   assert.equal(query.json().containers[0].stale, true);
   assert.equal((await app.inject({ method: "GET", url: path + "?state=bogus", headers: { cookie } })).statusCode, 400);
+  assert.equal((await app.inject({ method: "GET", url: path + "?source=managed", headers: { cookie } })).json().total, 1);
+  assert.equal((await app.inject({ method: "GET", url: path + "?source=external", headers: { cookie } })).json().total, 0);
+  const instanceDetail = await app.inject({ method: "GET", url: "/api/v1/admin/app-instances/" + instanceId, headers: { cookie } });
+  assert.equal(instanceDetail.statusCode, 200);
+  assert.equal(instanceDetail.json().containers.length, 1);
+  assert.equal((await app.inject({ method: "GET", url: "/api/v1/admin/inventory-settings" })).statusCode, 401);
+  const settings = await app.inject({ method: "GET", url: "/api/v1/admin/inventory-settings", headers: { cookie } });
+  assert.equal(settings.json().intervalMs, 120000);
+  const invalidInterval = await app.inject({ method: "PATCH", url: "/api/v1/admin/inventory-settings",
+    headers: { cookie, "x-navloom-csrf": "1", "content-type": "application/json" }, payload: { intervalMs: 100 } });
+  assert.equal(invalidInterval.statusCode, 400);
+  const validInterval = await app.inject({ method: "PATCH", url: "/api/v1/admin/inventory-settings",
+    headers: { cookie, "x-navloom-csrf": "1", "content-type": "application/json" }, payload: { intervalMs: 30000 } });
+  assert.equal(validInterval.statusCode, 200);
+  assert.equal(validInterval.json().intervalMs, 30000);
+  assert.equal((await app.inject({ method: "GET", url: "/api/v1/admin/inventory-settings", headers: { cookie } })).json().intervalMs, 30000);
   const association = await app.inject({ method: "GET", url: "/api/v1/admin/app-instances", headers: { cookie } });
   assert.equal(association.json().instances[0].containerCount, 1);
   const zeroPage = await app.inject({ method: "POST", url: "/api/v1/admin/agents/" + a + "/inventory-refresh",
