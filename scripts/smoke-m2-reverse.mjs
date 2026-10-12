@@ -7,6 +7,7 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import WebSocket from "ws";
+import { verifyChromiumPages } from "./m2-chromium.mjs";
 
 const temp = mkdtempSync(join(tmpdir(), "navloom-reverse-e2e-"));
 const children = [];
@@ -272,6 +273,14 @@ try {
   assert.ok((await devices()).every((device) => device.lastSeenAt === null));
   assert.equal(establishedAgentTcp(first.port), 0, "zero pages: A has no Server TCP session");
   assert.equal(establishedAgentTcp(second.port), 0, "zero pages: B has no Server TCP session");
+
+  if (process.env.NAVLOOM_CI_BROWSER === "1") {
+    await verifyChromiumPages({
+      temp, base, children, settings, ports: { a: first.port, b: second.port },
+      password, homePassphrase, establishedAgentTcp, until, stop,
+    });
+    assert.equal((await settings()).payload.activePages, 0);
+  }
 
   // An ordinary homepage-cookie browser, with no admin page open, activates both Agents.
   const homePage = await page(homeCookie);
