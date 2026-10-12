@@ -28,32 +28,32 @@
 
 | 任务 | 已有自动化子项 | Codex 仍需独立验收的关键项目 | 正式验收 |
 | --- | --- | --- | --- |
-| T-34 | 配对/数据库持久化、重连单测 | 实机 Server 重启、Agent ID 唯一性、撤销/历史记录不丢 | NOT_RUN |
-| T-35 | 一次性令牌已正式勾选 | Codex 独立复核过期/复用/非管理员/秘密不泄露；保持 [x] | 已勾选，复核待做 |
-| T-36 | Go-Node mTLS、证书用途、私网 IP/0600 单测 | 双实体 Agent 证书互换/过期/错误地址及重配对 | NOT_RUN |
-| T-37 | Server 反向 WSS、0/1/N TCP、撤销测试 | 真实 EasyTier：零页面抓包、重复连接/SSRF/错误证书 | NOT_RUN |
-| T-38 | Go 被动监听、TLS 拒绝/关闭测试 | NAS 只监听私网、无出站重连/轮询、停止服务 | NOT_RUN |
-| T-39 | v2 信封/版本/重放与恶意帧测试 | 伪造身份、任意命令、旧 JSON heartbeat 实机拒绝 | NOT_RUN |
-| T-40 | 浏览器/Mock 页面、自动/手动 Ping、历史冻结 | 手机/桌面跨设备、强杀浏览器、口令撤销、0 字节抓包 | NOT_RUN |
-| T-41 | 管理员 Agent API、配置/历史数据回归 | 跨 Server 重启、只首页凭据无法管理、状态标签正确 | NOT_RUN |
-| T-42 | 全局 AdminShell、设置共享与广播代码 | 任意管理员页面跨设备配置及手动按钮，无重复调度 | NOT_RUN |
-| T-43 | 真实双 Go Agent 撤销 A 不影响 B | 重启已撤销 A 后仍不能连/操作且历史保留 | NOT_RUN |
-| T-44 | 任务路由/超时/unknown/重复结果测试 | Server/Agent 异常退出后副作用任务不重放 | NOT_RUN |
-| T-45 | 白名单/会话重放、专用真 Docker 动作 | 恶意参数/未认证动作；Compose 部署尚属 M3 预留 | NOT_RUN |
-| T-46 | 只读 Docker/Compose 探测和隔离测试 | 无 Socket/权限不足/Compose 缺失及无页不探测 | NOT_RUN |
-| T-47 | 两个真实 Go Agent、mTLS 和 TCP 无连接 | 两台独立 Docker 主机+实网抓包/浏览器异常退出 | NOT_RUN |
-| T-48 | Runner 真 Docker all=1 发现运行和退出容器 | FNOS Docker API、Agent 启动前已有容器、容器数量上限 | NOT_RUN |
-| T-49 | 分片/原子快照、跨 Agent 隔离/失败保留 | Server 重启、乱序重放、无页快照不变 | NOT_RUN |
-| T-50 | 真实 Docker destroy、快速事件、旧扫描竞态 | 两实体主机频繁事件、失联期间操作/重连后全量纠正 | NOT_RUN |
-| T-51 | Compose 标签、端口/状态规范与敏感标签过滤 | 多端口/协议、IPv6、无 Compose、绝不猜测 URL | NOT_RUN |
-| T-52 | 容器列表/分页/筛选及管理 API 单测 | 真实浏览器筛选、无 Cookie/首页 Cookie 拒绝管理 | NOT_RUN |
-| T-53 | Vue 容器池页面功能已实现 | 浏览器 UI 搜索/空态/详情/移动端，容器不自动进首页 | NOT_RUN |
-| T-54 | paused/最后快照冻结回归 | 实网离开全部页面、重连同步及历史/过期展示 | NOT_RUN |
-| T-55 | 临时真 Docker stop/start/restart、Journal 测试 | 授权专用容器定向/幂等/失败/断线/越权保护 | NOT_RUN |
-| T-56 | AppInstance 模型、目录 API/来源测试 | 实例/任务跨 Server 重启，外部项目不自动转受管 | NOT_RUN |
-| T-57 | 跨 Agent 同名项目及重建模拟，真实项目登记 | 专用 Compose force-recreate 后新容器 ID 稳定归属 | NOT_RUN |
-| T-58 | 真 Docker 有界日志/模拟密码脱敏测试 | 权限、超大日志、断线；持续流式查看实现差异需定论 | NOT_RUN |
-| T-59 | 双 Go Agent 与一个真 Docker daemon 全链路 CI | 两独立设备、实浏览器、零包抓取、重建/压力与完整验收 | NOT_RUN |
+| T-034 | 配对/数据库持久化、重连单测 | 实机 Server 重启、Agent ID 唯一性、撤销/历史记录不丢 | NOT_RUN |
+| T-035 | 一次性令牌已正式勾选 | Codex 独立复核过期/复用/非管理员/秘密不泄露；保持 [x] | 已勾选，复核待做 |
+| T-036 | Go-Node mTLS、证书用途、私网 IP/0600 单测 | 双实体 Agent 证书互换/过期/错误地址及重配对 | NOT_RUN |
+| T-037 | Server 反向 WSS、0/1/N TCP、撤销测试 | 真实 EasyTier：零页面抓包、重复连接/SSRF/错误证书 | NOT_RUN |
+| T-038 | Go 被动监听、TLS 拒绝/关闭测试 | NAS 只监听私网、无出站重连/轮询、停止服务 | NOT_RUN |
+| T-039 | v2 信封/版本/重放与恶意帧测试 | 伪造身份、任意命令、旧 JSON heartbeat 实机拒绝 | NOT_RUN |
+| T-040 | 浏览器/Mock 页面、自动/手动 Ping、历史冻结 | 手机/桌面跨设备、强杀浏览器、口令撤销、0 字节抓包 | NOT_RUN |
+| T-041 | 管理员 Agent API、配置/历史数据回归 | 跨 Server 重启、只首页凭据无法管理、状态标签正确 | NOT_RUN |
+| T-042 | 全局 AdminShell、设置共享与广播代码 | 任意管理员页面跨设备配置及手动按钮，无重复调度 | NOT_RUN |
+| T-043 | 真实双 Go Agent 撤销 A 不影响 B | 重启已撤销 A 后仍不能连/操作且历史保留 | NOT_RUN |
+| T-044 | 任务路由/超时/unknown/重复结果测试 | Server/Agent 异常退出后副作用任务不重放 | NOT_RUN |
+| T-045 | 白名单/会话重放、专用真 Docker 动作 | 恶意参数/未认证动作；Compose 部署尚属 M3 预留 | NOT_RUN |
+| T-046 | 只读 Docker/Compose 探测和隔离测试 | 无 Socket/权限不足/Compose 缺失及无页不探测 | NOT_RUN |
+| T-047 | 两个真实 Go Agent、mTLS 和 TCP 无连接 | 两台独立 Docker 主机+实网抓包/浏览器异常退出 | NOT_RUN |
+| T-048 | Runner 真 Docker all=1 发现运行和退出容器 | FNOS Docker API、Agent 启动前已有容器、容器数量上限 | NOT_RUN |
+| T-049 | 分片/原子快照、跨 Agent 隔离/失败保留 | Server 重启、乱序重放、无页快照不变 | NOT_RUN |
+| T-050 | 真实 Docker destroy、快速事件、旧扫描竞态 | 两实体主机频繁事件、失联期间操作/重连后全量纠正 | NOT_RUN |
+| T-051 | Compose 标签、端口/状态规范与敏感标签过滤 | 多端口/协议、IPv6、无 Compose、绝不猜测 URL | NOT_RUN |
+| T-052 | 容器列表/分页/筛选及管理 API 单测 | 真实浏览器筛选、无 Cookie/首页 Cookie 拒绝管理 | NOT_RUN |
+| T-053 | Vue 容器池页面功能已实现 | 浏览器 UI 搜索/空态/详情/移动端，容器不自动进首页 | NOT_RUN |
+| T-054 | paused/最后快照冻结回归 | 实网离开全部页面、重连同步及历史/过期展示 | NOT_RUN |
+| T-055 | 临时真 Docker stop/start/restart、Journal 测试 | 授权专用容器定向/幂等/失败/断线/越权保护 | NOT_RUN |
+| T-056 | AppInstance 模型、目录 API/来源测试 | 实例/任务跨 Server 重启，外部项目不自动转受管 | NOT_RUN |
+| T-057 | 跨 Agent 同名项目/重建模拟，并已在 Runner 真正执行 Docker Compose v2 force-recreate 验证新容器 ID | **两台独立实体 NAS** 上复验 Compose 重建、Agent 身份隔离及导航关联 | NOT_RUN |
+| T-058 | 真 Docker 有界日志/模拟密码脱敏测试 | 权限、超大日志、断线；持续流式查看实现差异需定论 | NOT_RUN |
+| T-059 | 双 Go Agent 与一个真 Docker daemon 全链路 CI | 两独立设备、实浏览器、零包抓取、重建/压力与完整验收 | NOT_RUN |
 
 ### 3. Codex 必须补验的五组真实场景
 
