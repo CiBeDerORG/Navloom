@@ -197,7 +197,9 @@ func NewInventoryChunk(agentID, taskID string, sequence int, records []Container
 		Sequence int               `json:"sequence"`
 		Records  []ContainerRecord `json:"containers"`
 	}{Sequence: sequence, Records: records})
-	if err != nil { return Message{}, err }
+	if err != nil {
+		return Message{}, err
+	}
 	msg.Type, msg.TaskID, msg.Payload = "inventory_chunk", taskID, payload
 	return msg, nil
 }
@@ -207,31 +209,45 @@ func NewInventoryResult(agentID, taskID string, count, chunks int) (Message, err
 		return Message{}, errors.New("invalid inventory completion")
 	}
 	msg, err := newEnvelope(agentID)
-	if err != nil { return Message{}, err }
+	if err != nil {
+		return Message{}, err
+	}
 	payload, err := json.Marshal(struct {
-		Success bool `json:"success"`
+		Success  bool `json:"success"`
 		ExitCode *int `json:"exit_code"`
-		Count int `json:"inventory_count"`
-		Chunks int `json:"inventory_chunks"`
-	}{Success:true, Count:count, Chunks:chunks})
-	if err != nil { return Message{}, err }
+		Count    int  `json:"inventory_count"`
+		Chunks   int  `json:"inventory_chunks"`
+	}{Success: true, Count: count, Chunks: chunks})
+	if err != nil {
+		return Message{}, err
+	}
 	msg.Type, msg.TaskID, msg.Payload = "task_result", taskID, payload
 	return msg, nil
 }
 
 func NewTaskFailure(agentID, taskID string, detail string) (Message, error) {
-	if !uuidPattern.MatchString(taskID) { return Message{}, errors.New("invalid task ID") }
+	if !uuidPattern.MatchString(taskID) {
+		return Message{}, errors.New("invalid task ID")
+	}
 	msg, err := newEnvelope(agentID)
-	if err != nil { return Message{}, err }
-	if len(detail) > 200 { detail = detail[:200] }
-	if detail == "" { detail = "operation unavailable" }
+	if err != nil {
+		return Message{}, err
+	}
+	if len(detail) > 200 {
+		detail = detail[:200]
+	}
+	if detail == "" {
+		detail = "operation unavailable"
+	}
 	code := 1
 	payload, err := json.Marshal(struct {
-		Success bool `json:"success"`
-		ExitCode *int `json:"exit_code"`
-		Error string `json:"error"`
-	}{Success:false, ExitCode:&code, Error:detail})
-	if err != nil { return Message{}, err }
+		Success  bool   `json:"success"`
+		ExitCode *int   `json:"exit_code"`
+		Error    string `json:"error"`
+	}{Success: false, ExitCode: &code, Error: detail})
+	if err != nil {
+		return Message{}, err
+	}
 	msg.Type, msg.TaskID, msg.Payload = "task_result", taskID, payload
 	return msg, nil
 }
