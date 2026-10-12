@@ -117,6 +117,27 @@ test("T-065: catalog list and detail are admin-only, readonly and do not leak va
   assert.equal(detail.json().template.parameters.properties.db_password.secret, true);
   assert.equal(detail.body.includes("a-tested-password"), false);
   assert.equal((await app.inject({ method: "GET", url: base + "/postgres-adminer" })).statusCode, 401);
+
+  const previewPath = base + "/postgres-adminer/preview";
+  assert.equal((await app.inject({
+    method: "POST", url: previewPath, headers: { "x-navloom-csrf": "1" },
+    payload: { parameters: { db_password: "not-sent-to-home" } },
+  })).statusCode, 401);
+  assert.equal((await app.inject({
+    method: "POST", url: previewPath, headers: { ...headers, "x-navloom-csrf": "1" },
+    payload: { parameters: { db_password: "short" } },
+  })).statusCode, 400);
+  const preview = await app.inject({
+    method: "POST", url: previewPath, headers: { ...headers, "x-navloom-csrf": "1" },
+    payload: { parameters: { db_password: "my-secret-password", web_port: 19001 } },
+  });
+  assert.equal(preview.statusCode, 200);
+  assert.equal(preview.json().valid, true);
+  assert.ok(preview.json().services.some((service: { ports: string[] }) =>
+    service.ports.includes("127.0.0.1:19001:8080/tcp")));
+  assert.equal(preview.body.includes("my-secret-password"), false, "preview must never reflect actual secrets");
+  assert.equal(preview.body.includes("POSTGRES_PASSWORD"), true, "environment key may be shown, never the value");
+
   assert.equal((await app.inject({ method: "POST", url: base, headers: {
     ...headers, "x-navloom-csrf": "1",
   }, payload: {} })).statusCode, 404, "catalog is read-only; no template-upload endpoint");
