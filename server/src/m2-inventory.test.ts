@@ -77,6 +77,12 @@ test("T-048/T-049/T-051: streamed snapshot persists atomically, isolates Agents 
   const snapshot = db.sqlite.prepare("SELECT container_count AS n FROM agent_inventory_snapshots WHERE agent_id = ?").get(a) as { n: number };
   assert.equal(snapshot.n, 2);
   assert.equal((db.sqlite.prepare("SELECT COUNT(*) AS n FROM container_inventory WHERE agent_id = ?").get(b) as { n: number }).n, 0);
+  tasks.applyInventoryEvent(a, "a".repeat(64), "stop");
+  assert.equal((db.sqlite.prepare("SELECT state FROM container_inventory WHERE agent_id = ? AND container_id = ?")
+    .get(a, "a".repeat(64)) as { state: string }).state, "exited", "Docker stop delta updates only its container");
+  tasks.applyInventoryEvent(a, "b".repeat(64), "destroy");
+  assert.equal((db.sqlite.prepare("SELECT COUNT(*) AS n FROM container_inventory WHERE agent_id = ?").get(a) as { n: number }).n, 1);
+  assert.equal((db.sqlite.prepare("SELECT COUNT(*) AS n FROM container_inventory WHERE agent_id = ?").get(b) as { n: number }).n, 0);
 
   const refreshed = tasks.dispatchInventoryRefresh(a, net.socket);
   assert.equal(tasks.acceptResult(a, envelope(a, refreshed, "task_result", {
