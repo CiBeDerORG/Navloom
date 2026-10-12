@@ -111,6 +111,36 @@ function establishedAgentTcp(port) {
   return established;
 }
 
+async function assertZeroPagePacketCapture(ports, durationMs = 5500) {
+  if (process.env.NAVLOOM_CI_PACKET_CAPTURE !== "1") {
+    await delay(durationMs);
+    return;
+  }
+  if (process.env.GITHUB_ACTIONS !== "true" || process.env.DOCKER_HOST) {
+    throw new Error("Packet capture acceptance is restricted to the isolated CI runner");
+  }
+  const pcap = join(temp, "m2-zero-page.pcap");
+  const filter = "tcp and (port " + ports.join(" or port ") + ")";
+  const tcpdump = spawn("sudo", ["-n", "tcpdump", "-i", "any", "-nn", "-s", "128",
+    "-w", pcap, filter], { stdio: ["ignore", "ignore", "pipe"] });
+  let errors = "";
+  tcpdump.stderr.on("data", (buf) => { errors += String(buf).slice(-1000); });
+  try {
+    await until(async () => {
+      try { return readFileSync(pcap).length >= 24; }
+      catch { return false; }
+    }, 10_000);
+    await delay(durationMs);
+  } finally {
+    await stop(tcpdump);
+  }
+  const captured = execFileSync("tcpdump", ["-nn", "-r", pcap], {
+    encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+  assert.equal(captured, "", "zero authenticated pages must produce exactly 0 captured Agent TCP packets: " + errors);
+  console.log("M2 isolated packet capture PASS: zero authenticated pages, zero Agent TCP packets for " + durationMs + " ms");
+}
+
 async function unusedPort(host) {
   return await new Promise((done, reject) => {
     const server = createServer();
@@ -439,7 +469,8 @@ try {
   assert.equal(establishedAgentTcp(first.port), 0, "revoked A remains disconnected");
   assert.equal(establishedAgentTcp(second.port), 0, "no page: no established Agent TCP session");
   const lastSeen = paused.find((device) => device.id === second.id)?.lastSeenAt;
-  await delay(5500); // exceeds the persisted automatic Ping interval
+  await delay(500); // let the final TCP close handshake settle before measuring idle traffic
+  await assertZeroPagePacketCapture([first.port, second.port]); // covers a full persisted automatic Ping interval
   assert.equal((await settings()).payload.mode, "auto", "configuration persists when no page exists");
   assert.equal((await devices()).find((device) => device.id === second.id)?.lastSeenAt, lastSeen);
   assert.equal(establishedAgentTcp(second.port), 0, "no hidden Agent reconnection during idle");
