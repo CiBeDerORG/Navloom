@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { DatabaseConnection } from "../db/client.js";
-import type { AgentCapabilities, AgentMessage } from "@navloom/contracts";
+import type { AgentCapabilities, AgentMessage, AgentContainer } from "@navloom/contracts";
 import { AGENT_PROTOCOL_VERSION } from "@navloom/contracts";
 import { WebSocket } from "ws";
 
 type TaskResult = Extract<AgentMessage, { type: "task_result" }>;
+type InventoryChunk = Extract<AgentMessage, { type: "inventory_chunk" }>;
 type TaskRow = {
   id: string; agentId: string; operation: string; status: string;
   createdAt: number; dispatchedAt: number; deadlineAt: number;
@@ -14,6 +15,7 @@ type TaskRow = {
 const taskSelect = "SELECT id, agent_id AS agentId, operation, status, created_at AS createdAt, dispatched_at AS dispatchedAt, deadline_at AS deadlineAt, finished_at AS finishedAt, result_json AS resultJson FROM agent_tasks";
 
 export class AgentTasks {
+  private readonly inventoryPending = new Map<string, { agentId: string; records: AgentContainer[]; chunks: number }>();
   constructor(private readonly db: DatabaseConnection, private readonly timeoutMs = 15_000) {
     // A Server restart cannot prove whether a remote task executed.
     this.db.sqlite.prepare("UPDATE agent_tasks SET status = 'unknown' WHERE status = 'sent'").run();
@@ -51,9 +53,50 @@ export class AgentTasks {
     return id;
   }
 
+  /** Inventory is read-only and runs only after an explicit admin request. */
+  dispatchInventoryRefresh(agentId: string, socket: WebSocket): string {
+    if (socket.readyState !== WebSocket.OPEN) throw new Error("Agent connection unavailable");
+    const existing = this.db.sqlite.prepare(
+      "SELECT id FROM agent_tasks WHERE agent_id = ? AND operation = 'inventory_refresh' AND status = 'sent' AND deadline_at > ? LIMIT 1",
+    ).get(agentId, Date.now()) as { id: string } | undefined;
+    if (existing) return existing.id;
+    const id = randomUUID();
+    const now = Date.now();
+    this.db.sqlite.prepare(
+      "INSERT INTO agent_tasks (id, agent_id, operation, status, arguments_json, created_at, dispatched_at, deadline_at) VALUES (?, ?, 'inventory_refresh', 'sent', '{}', ?, ?, ?)",
+    ).run(id, agentId, now, now, now + 30_000);
+    this.inventoryPending.set(id, { agentId, records: [], chunks: 0 });
+    const msg = {
+      protocol_version: AGENT_PROTOCOL_VERSION, message_id: randomUUID(), agent_id: agentId,
+      sent_at: new Date().toISOString(), type: "task_dispatch", task_id: id,
+      payload: { operation: "inventory_refresh", arguments: {} },
+    };
+    try {
+      socket.send(JSON.stringify(msg), (error) => { if (error) this.markUnknown(id); });
+    } catch {
+      this.markUnknown(id);
+      throw new Error("Agent inventory dispatch failed");
+    }
+    return id;
+  }
+
+  acceptInventoryChunk(agentId: string, message: InventoryChunk): boolean {
+    const row = this.db.sqlite.prepare(taskSelect + " WHERE id = ?").get(message.task_id) as TaskRow | undefined;
+    const pending = this.inventoryPending.get(message.task_id);
+    if (!row || row.agentId !== agentId || row.operation !== "inventory_refresh" ||
+        row.status !== "sent" || row.deadlineAt <= Date.now() ||
+        !pending || pending.agentId !== agentId || message.payload.sequence !== pending.chunks ||
+        pending.records.length + message.payload.containers.length > 2000) return false;
+    const active = this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId);
+    if (!active) return false;
+    pending.records.push(...message.payload.containers);
+    pending.chunks++;
+    return true;
+  }
+
   acceptResult(agentId: string, message: TaskResult): boolean {
     const row = this.db.sqlite.prepare(taskSelect + " WHERE id = ?").get(message.task_id) as TaskRow | undefined;
-    if (!row || row.agentId !== agentId || row.operation !== "capability_probe") return false;
+    if (!row || row.agentId !== agentId || !["capability_probe", "inventory_refresh"].includes(row.operation)) return false;
     // A revoked Agent must never report a delayed completion, even if its
     // original task remains in the audit history.
     const activeAgent = this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId);
@@ -64,7 +107,20 @@ export class AgentTasks {
       return row.resultJson !== null && isDeepStrictEqual(JSON.parse(row.resultJson), message.payload);
     }
     if (row.status !== "sent" && row.status !== "unknown") return false;
-    if (message.payload.success && !message.payload.capabilities) return false;
+    if (row.operation === "capability_probe") {
+      if (message.payload.success && !message.payload.capabilities) return false;
+      if (message.payload.inventory_count !== undefined || message.payload.inventory_chunks !== undefined) return false;
+    } else {
+      if (message.payload.capabilities) return false;
+      const pending = this.inventoryPending.get(row.id);
+      if (message.payload.success && (
+          !pending || pending.agentId !== agentId ||
+          message.payload.inventory_count !== pending.records.length ||
+          message.payload.inventory_chunks !== pending.chunks ||
+          row.status !== "sent" || row.deadlineAt <= Date.now())) return false;
+      if (!message.payload.success &&
+          (message.payload.inventory_count !== undefined || message.payload.inventory_chunks !== undefined)) return false;
+    }
     if (!message.payload.success && message.payload.capabilities) return false;
     const now = Date.now();
     this.db.sqlite.transaction(() => {
@@ -72,6 +128,28 @@ export class AgentTasks {
         "UPDATE agent_tasks SET status = ?, finished_at = ?, result_json = ? WHERE id = ? AND status IN ('sent','unknown')",
       ).run(message.payload.success ? "succeeded" : "failed", now, JSON.stringify(message.payload), row.id);
       if (updated.changes !== 1) return;
+      if (row.operation === "inventory_refresh" && message.payload.success) {
+        const pending = this.inventoryPending.get(row.id);
+        if (!pending) throw new Error("Inventory buffer was lost");
+        // Commit new snapshot and metadata as one transaction. Empty snapshots
+        // remove stale rows; interrupted transfers preserve the old snapshot.
+        this.db.sqlite.prepare("DELETE FROM container_inventory WHERE agent_id = ?").run(agentId);
+        const insert = this.db.sqlite.prepare(
+          "INSERT INTO container_inventory (id, agent_id, container_id, name, image, state, ports_json, labels_json, compose_project, compose_service, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        );
+        const unique = new Set<string>();
+        for (const item of pending.records) {
+          if (unique.has(item.container_id)) throw new Error("Duplicate container in inventory");
+          unique.add(item.container_id);
+          insert.run(randomUUID(), agentId, item.container_id, item.name, item.image, item.state,
+            JSON.stringify(item.ports), JSON.stringify(item.labels), item.compose_project,
+            item.compose_service, now);
+        }
+        this.db.sqlite.prepare(
+          "INSERT INTO agent_inventory_snapshots (agent_id, updated_at, container_count, task_id) VALUES (?, ?, ?, ?) " +
+          "ON CONFLICT(agent_id) DO UPDATE SET updated_at = excluded.updated_at, container_count = excluded.container_count, task_id = excluded.task_id",
+        ).run(agentId, now, pending.records.length, row.id);
+      }
       if (message.payload.success && message.payload.capabilities) {
         const capabilities = message.payload.capabilities;
         this.db.sqlite.prepare(
@@ -83,6 +161,7 @@ export class AgentTasks {
           .run(capabilities.platform, capabilities.architecture, agentId);
       }
     })();
+    this.inventoryPending.delete(row.id);
     return true;
   }
 
@@ -103,14 +182,22 @@ export class AgentTasks {
 
   markAgentUnknown(agentId: string): void {
     this.db.sqlite.prepare("UPDATE agent_tasks SET status = 'unknown' WHERE agent_id = ? AND status = 'sent'").run(agentId);
+    for (const [id, pending] of this.inventoryPending) {
+      if (pending.agentId === agentId) this.inventoryPending.delete(id);
+    }
   }
 
   markUnknown(taskId: string): void {
     this.db.sqlite.prepare("UPDATE agent_tasks SET status = 'unknown' WHERE id = ? AND status = 'sent'").run(taskId);
+    this.inventoryPending.delete(taskId);
   }
 
   expire(): void {
     this.db.sqlite.prepare("UPDATE agent_tasks SET status = 'unknown' WHERE status = 'sent' AND deadline_at < ?")
       .run(Date.now());
+    for (const id of this.inventoryPending.keys()) {
+      const row = this.db.sqlite.prepare("SELECT status FROM agent_tasks WHERE id = ?").get(id) as { status: string } | undefined;
+      if (row?.status !== "sent") this.inventoryPending.delete(id);
+    }
   }
 }
