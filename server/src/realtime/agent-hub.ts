@@ -296,8 +296,10 @@ export class AgentHub {
       this.refreshInventoryIfConnected(session.agentId);
       // Capability tasks require a separate explicit administrator request.
     } else if (message.type === "inventory_changed") {
-      // No page means no Agent task, no DB heartbeat, and no fresh reconnect.
+      // No page means no Agent task, state mutation, or fresh reconnect.
       if (!this.inventorySync) return;
+      this.tasks.applyInventoryEvent(session.agentId, message.payload.container_id, message.payload.action);
+      this.touch(session);
       this.scheduleInventoryChange(session.agentId);
     } else if (message.type === "task_log") {
       if (!this.tasks.acceptTaskLog(session.agentId, message)) {
