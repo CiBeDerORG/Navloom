@@ -18,9 +18,9 @@
 | 工程 | Web/Server/SQLite/Go 构建和单测、Go -race、Compose 开发环境 | [CI 38211915345](https://github.com/CiBeDerORG/Navloom/actions/runs/38211915345)，4/4 PASS |
 | 真实 Agent/协议 | 同 Runner 两个真实 Go 被动进程 + Node Server mTLS 反向 WSS；首页/后台页面 WSS、自动/手动 Ping、A/B 任务隔离、撤销与重连 | scripts/smoke-m2-reverse.mjs；非两台物理 NAS |
 | 真 Docker | GitHub 托管临时 Runner 的专用容器：运行/停止发现、Compose labels、按 Agent 隔离、真实 stop/start/restart、日志脱敏、destroy 后自动对账 | 同 CI 日志含 M2 disposable real-Docker acceptance PASS；两个 Agent **共用一个 Docker daemon** |
-| 0 页面网络 | /proc/net/tcp* 显示无 ESTABLISHED TCP，末页关闭和整个自动心跳周期未重建连接 | **不是包级 0 字节抓包** |
+| 0 页面网络 | Linux /proc/net/tcp* 核对 0 页无已建立 TCP；另用 Linux AF_PACKET 在完整 5.5 秒自动检测周期对两个 Agent 测试端口抓原始报文，计数 **0 包** | [CI 38218183281](https://github.com/CiBeDerORG/Navloom/actions/runs/38218183281) 4/4 PASS，日志含 M2 isolated packet capture PASS；**仅单 Runner 测试端口抓包，非实网全协议抓包** |
 | 边界/竞态 | 高频 Docker 事件、旧扫描重对账、WS 并发 -race、Compose 重建隔离模拟 | [CI 38211154811](https://github.com/CiBeDerORG/Navloom/actions/runs/38211154811)，4/4 PASS |
-| 实浏览器 | scripts/m2-chromium.mjs 已加入 GitHub Runner CI，尝试真实 Chrome 口令与多页生命周期 | 已在 [CI 38217607163](https://github.com/CiBeDerORG/Navloom/actions/runs/38217607163) 4/4 PASS；集成日志包含 M2 real Chromium PASS；仅证明隔离无头 Chrome（非跨设备浏览器） |
+| 实浏览器 | scripts/m2-chromium.mjs 用真实无头 Chrome 经网页输入首页口令和管理员账号，检查匿名不激活、两导航标签页/管理员页共享 WSS、末页关闭 | [CI 38218183281](https://github.com/CiBeDerORG/Navloom/actions/runs/38218183281) 4/4 PASS、日志 M2 real Chromium PASS；**非 Android/跨设备实浏览器** |
 
 ### 2. 26 项逐项交接矩阵
 
@@ -76,7 +76,7 @@
 
 ---
 
-## 给 Codex 的执行指令
+## 历史 Codex 执行指令（2026-10-11 基线，M2 按上方最新总控）
 
 1. 先阅读本文件、[M1 实施记录](./M1-IMPLEMENTATION.md)、[M2 实施记录](./M2-IMPLEMENTATION.md)、[PRD](./PRD.md)、[决策记录](./DECISIONS.md) 和对应任务原文；检查当前代码而不是仅相信旧实施记录。
 2. **优先执行 A 组 M1 的 9 项和 C 组 M2 当前已实现部分的验收**：M1 使用真实浏览器交互（建议 Playwright；仓库当前未预装浏览器 E2E 测试框架），M2 使用本地隔离 Server/SQLite + Go 测试与管理员浏览器。能自动化的编写可重复运行的测试；无法运行时标记 `NOT_RUN`，不得伪称通过。
@@ -273,7 +273,7 @@ npm run db:migrate
 - 使用已撤销 Agent 凭据调用身份验证应失败；绝不将首页口令或管理员 Cookie 当成 Agent 凭据；设备配对接口只能用于交换一次性令牌，不是 Docker 操作入口。
 - 检查错误路径（过期、重复使用、格式错误、无权限、网络断开）不会输出秘密；CI 绿灯不等于真实设备验收。
 
-## D. M2 后续验收登记（20 项：8 项已提交代码待独立回归，12 项尚未实现）
+## D. M2 旧阶段验收登记（历史记录，不代表当前容器池实现状态）
 
 > 这些任务**继续统一登记在本文件**。**T-037～T-040 按 D1～D4 回归；T-044～T-047 按 D5～D8 回归已实现的安全子集**；T-048～T-059 仍为 `NOT_IMPLEMENTED`。T-045/T-047 的 Docker 执行子项仍被 T-048/T-055 阻塞。不要用 mock 通过代替真实 Agent/Docker 联调。
 
@@ -489,3 +489,5 @@ npm run db:migrate
 **2026-10-12 T-057/T-059 Compose 重建关联隔离回归（自动化，非独立 PASS）**：`server/src/m2-inventory.test.ts` 新增双 Agent 同名 Compose project 场景：容器 ID 更换后，原 Agent 仍关联原 `AppInstance`，另一 Agent 相同项目不得误关联或变成 Navloom 管理来源；实例详情返回重建后的容器。提交 `cff6324`，[CI 38211154811](https://github.com/CiBeDerORG/Navloom/actions/runs/38211154811) **4/4 通过**（包括 Go `-race`）。使用隔离 SQLite 模拟重建，没有对真实 Docker 执行副作用操作。T-057/T-059 正式验收继续 `NOT_RUN`。
 
 **2026-10-12 独立 GitHub Runner Docker 实测补充（真实 Docker，非真实 FNOS/NAS）**：已在 GitHub 托管 Ubuntu Runner 上新建并在运行结束后清理专用 scratch/Go Docker 测试镜像和容器；`scripts/smoke-m2-reverse.mjs` 仅在 `NAVLOOM_CI_DOCKER_FIXTURES=1` 且 `GITHUB_ACTIONS=true`、未配置 `DOCKER_HOST` 时才允许创建或操作临时容器。两台真实 Go 被动 Agent、Node 主动 Server、私网 mTLS、页面 WSS 仍采用原隔离脚本。**新增实际 Docker 验证**：Server/Agent 全量发现事先存在的运行中及已停止容器；Compose 标签与无关标签过滤；同一物理 Docker daemon 的两个 Agent 数据按 Agent ID 隔离；管理员显式登记 Compose 实例时另一 Agent 不被串联；通过管理员 API 对专用容器执行真实 stop/start/restart；从真实 Docker 日志中读取并遮盖模拟密码；容器删除后 Docker events 驱动快照收敛。先前的 0/1/N 页面、Linux 内核 TCP 零连接、手动/自动 Ping/Pong、单 Agent 重启和撤销回归继续通过。提交 `1155a5c` / `b82f694` / `54d8332`，[CI 38211915345](https://github.com/CiBeDerORG/Navloom/actions/runs/38211915345) **4/4 PASS**；运行日志明确记录 `M2 disposable real-Docker acceptance PASS`。**准确边界**：这是真实 Docker 但属于单台临时 CI 主机，两条 Agent 共享同一 Docker daemon；不是两台真实 NAS 的独立 Docker daemon，也不是实际跨家庭 EasyTier、物理抓包、证书轮换、真浏览器多端或压力测试。E 组完整正式验收仍 `NOT_RUN`，不能直接勾选 T-034～T-059 剩余复选框。
+
+**2026-10-12 隔离 Chrome + Docker + 原始报文综合自动验收**：启用真实无头 Chrome 的匿名口令页、导航页多标签、管理员登录与最后页面断连测试；两真实 Go 被动 Agent 与 Node 反向 mTLS WSS；Runner 专用真 Docker 容器的读取、启停重启、日志脱敏及事件对账；Linux AF_PACKET 原始 Ethernet 包抓取仅针对两个 Agent 测试 TCP 端口，在最后页面关闭后稳定空闲的 **5.5 秒窗口内 0 包**。脚本 scripts/m2-chromium.mjs、scripts/m2-packet-capture.py、scripts/smoke-m2-reverse.mjs；[CI 38218183281](https://github.com/CiBeDerORG/Navloom/actions/runs/38218183281) **4/4 PASS**，同一集成日志有三个独立 PASS 标记。**局限**：CI 运行于同一 GitHub Runner、同一 Docker daemon，抓包仅测 Agent 端口；不能替代实际两台 FNOS/NAS 与跨家庭 EasyTier 全协议抓包、真实移动浏览器、实际 Compose 重建和物理设备压力验收，E 组剩余正式复选框保留未验收。
