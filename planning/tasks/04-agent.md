@@ -72,4 +72,4 @@
 
 ## 里程碑验收
 
-只有 T-036～T-047 的新架构完整联调通过后，才开始 T-048～T-059 的容器池开发。历史 CI 绿色仅说明旧实现曾可运行，不等于新方案通过。**Codex 的全部新旧回归步骤统一维护在 [M1-CODEX-REGRESSION.md](../M1-CODEX-REGRESSION.md)，不得另建验收任务文件。**
+T-036～T-047 的反向连接架构与 T-048～T-059 容器池主要代码现已并行实现；已在隔离 GitHub Runner 用真实 Chrome、两 Go Agent、一个 Docker daemon 和原始 TCP 包计数进行了综合 CI 回归。**正式验收仍须按本任务和 Codex 实网清单逐项完成，不能将 CI 自动化替代独立双设备/实机验收。****Codex 的全部新旧回归步骤统一维护在 [M1-CODEX-REGRESSION.md](../M1-CODEX-REGRESSION.md)，不得另建验收任务文件。**
