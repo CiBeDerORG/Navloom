@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { X509Certificate, randomUUID } from "node:crypto";
+import { X509Certificate, randomBytes, randomUUID } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -236,6 +236,8 @@ try {
     AGENT_CLIENT_CERT_FILE: clientCert, AGENT_CLIENT_KEY_FILE: clientKey,
     NAVLOOM_ADMIN_USERNAME: "admin", NAVLOOM_ADMIN_PASSWORD: password,
     NAVLOOM_HOME_PASSPHRASE: homePassphrase,
+    // Ephemeral 256-bit encryption key for isolated prepared-install acceptance only.
+    NAVLOOM_INSTALL_KEY: randomBytes(32).toString("base64url"),
   };
   execFileSync("npm", ["run", "db:migrate"], { env, stdio: "pipe" });
   execFileSync("npm", ["run", "admin:init", "-w", "@navloom/server"], { env, stdio: "pipe" });
@@ -369,6 +371,38 @@ try {
     await until(async () => (await containersFor(first.id)).some(row => row.containerId === fixture.running) &&
       (await containersFor(first.id)).some(row => row.containerId === fixture.stopped));
     await until(async () => (await containersFor(second.id)).some(row => row.containerId === fixture.running));
+
+    // M3 prepared install is durable and encrypted but MUST NEVER execute
+    // Compose: the Agent executor remains disabled until T-076.
+    await call("/api/v1/admin/agents/" + first.id + "/capability-probe", "POST", {}, cookie);
+    await until(async () => (await devices()).find(a => a.id === first.id)?.capabilities?.compose?.available === true);
+    const preflightBody = {
+      agentId: first.id, templateId: "postgres-adminer", templateVersion: "1.0.0",
+      parameters: { web_port: 18881, db_password: "isolated-ci-install-secret" },
+      navigation: { title: "Adminer test", url: "https://adminer.example.test/",
+        icon: "🗄️", description: "CI-only draft", groupId: null, openTarget: "_blank" },
+    };
+    const preparedCheck = await call("/api/v1/admin/install/preflight", "POST", preflightBody, cookie);
+    assert.equal(preparedCheck.payload.ready, true);
+    assert.equal(JSON.stringify(preparedCheck.payload).includes(preflightBody.parameters.db_password), false);
+    const preparedBody = { ...preflightBody, idempotencyKey: randomUUID() };
+    const saved = await call("/api/v1/admin/install/prepared-tasks", "POST", preparedBody, cookie);
+    assert.equal(saved.payload.status, "prepared");
+    assert.equal(saved.payload.dispatched, false);
+    const duplicate = await call("/api/v1/admin/install/prepared-tasks", "POST", preparedBody, cookie);
+    assert.equal(duplicate.payload.taskId, saved.payload.taskId);
+    assert.equal(duplicate.payload.created, false);
+    const rejected = await fetch(base + "/api/v1/admin/install/prepared-tasks", {
+      method: "POST", headers: { cookie, "x-navloom-csrf": "1", "content-type": "application/json" },
+      body: JSON.stringify({ ...preparedBody, parameters: {
+        ...preparedBody.parameters, db_password: "attempt-to-change-secret",
+      } }),
+    });
+    assert.equal(rejected.status, 409, "same key with different secrets must be rejected");
+    assert.equal(docker(["inspect", "-f", "{{.State.Status}}", fixture.running]), "running",
+      "saving M3 prepared intent MUST NOT affect Docker");
+    console.log("M3 real Agent + SQLite prepared-install PASS: online preflight, encrypted staged task, idempotency and zero Docker side effects");
+
     const firstInventory = await containersFor(first.id);
     const aRunning = firstInventory.find(row => row.containerId === fixture.running);
     const aStopped = firstInventory.find(row => row.containerId === fixture.stopped);
