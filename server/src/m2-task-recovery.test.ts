@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { test } from "node:test";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { AgentMessageSchema, type AgentCapabilities } from "@navloom/contracts";
+import { AgentMessageSchema, type AgentCapabilities, type AgentMessage } from "@navloom/contracts";
 import { WebSocket } from "ws";
 import { openDatabase } from "./db/client.js";
 import { AgentTasks } from "./realtime/agent-tasks.js";
@@ -33,7 +33,7 @@ function dummySocket() {
   return { socket, sent };
 }
 
-function result(agentId: string, taskId: string, success = true) {
+function result(agentId: string, taskId: string, success = true): Extract<AgentMessage, { type: "task_result" }> {
   const capabilities: AgentCapabilities = {
     platform: "linux", architecture: "amd64",
     docker: { available: false, api_version: null, reason: "socket_missing" },
@@ -43,7 +43,7 @@ function result(agentId: string, taskId: string, success = true) {
     protocol_version: 2, message_id: randomUUID(), agent_id: agentId,
     sent_at: new Date().toISOString(), type: "task_result", task_id: taskId,
     payload: { success, exit_code: success ? null : 1, ...(success ? { capabilities } : { error: "probe failure" }) },
-  });
+  }) as Extract<AgentMessage, { type: "task_result" }>;
 }
 
 test("T-043/T-044: isolated tasks are idempotent and revoked Agents cannot finish pending work", (t) => {
