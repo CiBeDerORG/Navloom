@@ -36,7 +36,7 @@ func TestDockerInventoryDiscoversStoppedContainersAndOnlyComposeLabels(t *testin
 					"Labels": map[string]string{
 						"com.docker.compose.project": "site",
 						"com.docker.compose.service": "web",
-						"secret.access.token": "never-persist-this",
+						"secret.access.token":        "never-persist-this",
 					},
 				},
 				{
