@@ -90,3 +90,16 @@ func TestDockerControlsRefusePlainFiles(t *testing.T) {
 		t.Fatal("unsafe Unix socket path accepted")
 	}
 }
+
+func TestDockerLogsRedactCommonCredentialPatterns(t *testing.T) {
+	input := "password=correcthorsebatterystaple api_key:secret123 Authorization: Bearer abc.def token=opaque"
+	output := sanitizeLogLine(input)
+	for _, secret := range []string{"correcthorsebatterystaple", "secret123", "abc.def", "opaque"} {
+		if strings.Contains(output, secret) {
+			t.Fatalf("common credential pattern leaked into admin logs: %s", secret)
+		}
+	}
+	if !strings.Contains(output, "[REDACTED]") {
+		t.Fatal("expected visible redaction marker")
+	}
+}
