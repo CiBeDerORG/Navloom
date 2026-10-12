@@ -249,3 +249,13 @@ export const preflightApplicationInstall = (data: {
   request<InstallationPreflight>("/admin/install/preflight", {
     method: "POST", body: payload(data),
   });
+
+export const savePreparedInstallation = (data: {
+  agentId: string; templateId: string; templateVersion: string;
+  idempotencyKey: string;
+  parameters: Record<string, string | number | boolean>;
+  navigation: NavigationDraft;
+}) =>
+  request<{ taskId: string; status: "prepared"; created: boolean; dispatched: false; message: string }>(
+    "/admin/install/prepared-tasks", { method: "POST", body: payload(data) },
+  );
