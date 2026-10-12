@@ -114,6 +114,25 @@ export async function verifyChromiumPages({ temp, base, children, settings, port
     await until(async () => await evaluate(admin,
       'location.pathname.startsWith("/admin/") && location.pathname!=="/admin/login"'));
     await until(async () => await pages() === 3);
+
+    // M3 browser smoke: the actual management UI must fetch audited
+    // templates and dynamically render its parameter form, without a deploy.
+    const catalogTab = await tab("/admin/instances");
+    await until(async () => await evaluate(catalogTab,
+      'Boolean(document.querySelector("#catalog-heading"))'));
+    await until(async () => await evaluate(catalogTab,
+      'document.body.innerText.includes("Nginx 静态网页")'));
+    await evaluate(catalogTab,
+      'Array.from(document.querySelectorAll("button")).find(btn => btn.textContent.includes("Nginx 静态网页")).click()');
+    await until(async () => await evaluate(catalogTab,
+      'Boolean(document.querySelector("#catalog-field-http_port"))'));
+    assert.equal(await evaluate(catalogTab,
+      'document.querySelector("#catalog-field-http_port").value'), "18080");
+    await until(async () => await pages() === 4);
+    await closeTab(catalogTab);
+    await until(async () => await pages() === 3);
+    console.log("M3 real Chromium catalog PASS: admin-only built-in template and schema-generated port input");
+
     await closeTab(second);
     await until(async () => await pages() === 2);
     await closeTab(home);
