@@ -19,7 +19,7 @@ test("SQLite migrations are repeatable and enforce inventory uniqueness", () => 
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
       .all() as Array<{ name: string }>;
     const names = new Set(tables.map((row) => row.name));
-    for (const table of ["admin_users", "navigation_cards", "agents", "container_inventory", "app_instances", "install_tasks", "task_logs"]) {
+    for (const table of ["admin_users", "navigation_cards", "agents", "container_inventory", "app_instances", "install_tasks", "install_task_inputs", "task_logs"]) {
       assert.equal(names.has(table), true, "missing table " + table);
     }
 
