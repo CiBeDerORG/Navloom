@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import {
-  getApplicationCatalog, getApplicationTemplate, previewApplicationTemplate, preflightApplicationInstall, getAdminNavigation,
+  getApplicationCatalog, getApplicationTemplate, previewApplicationTemplate, preflightApplicationInstall, getAdminNavigation, savePreparedInstallation,
   type AgentDevice, type CatalogPreview, type CatalogTemplateDetail, type CatalogTemplateSummary,
   type NavigationDraft, type NavigationGroup, type InstallationPreflight,
 } from "../lib/api";
@@ -20,6 +20,9 @@ const loading = ref(true);
 const busy = ref(false);
 const error = ref("");
 const approved = ref(false);
+const preparedTaskId = ref("");
+const preparedNotice = ref("");
+const installKey = ref(crypto.randomUUID());
 const compatibleAgents = computed(() => props.agents.filter((agent) =>
   agent.status === "online" && !!agent.capabilities?.docker.available &&
   !!agent.capabilities?.compose.available &&
@@ -53,6 +56,9 @@ async function selectTemplate(id: string) {
   installPreflight.value = null;
   approved.value = false;
   parameters.value = {};
+  preparedTaskId.value = "";
+  preparedNotice.value = "";
+  installKey.value = crypto.randomUUID();
   try {
     const response = await getApplicationTemplate(id);
     selected.value = response.template;
@@ -74,13 +80,17 @@ async function selectTemplate(id: string) {
     busy.value = false;
   }
 }
-watch(parameters, () => {
-  installPreflight.value = null;
+function markDraftChanged() {
   preview.value = null;
+  installPreflight.value = null;
   approved.value = false;
-}, { deep: true });
-watch(agentId, () => { preview.value = null; installPreflight.value = null; approved.value = false; });
-watch(navigation, () => { installPreflight.value = null; approved.value = false; }, { deep: true });
+  preparedTaskId.value = "";
+  preparedNotice.value = "";
+  installKey.value = crypto.randomUUID();
+}
+watch(parameters, markDraftChanged, { deep: true });
+watch(agentId, markDraftChanged);
+watch(navigation, markDraftChanged, { deep: true });
 
 onMounted(() => { void loadCatalog(); });
 
@@ -122,6 +132,29 @@ async function validatePreview() {
     busy.value = false;
   }
 }
+
+async function savePreparedDraft() {
+  if (!selected.value || !installPreflight.value?.ready || busy.value || !approved.value) return;
+  busy.value = true;
+  error.value = "";
+  preparedNotice.value = "";
+  try {
+    const result = await savePreparedInstallation({
+      agentId: agentId.value, templateId: selected.value.id,
+      templateVersion: selected.value.version,
+      parameters: parameters.value,
+      navigation: navigation.value,
+      idempotencyKey: installKey.value,
+    });
+    preparedTaskId.value = result.taskId;
+    preparedNotice.value = result.message;
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "无法安全保存安装草稿";
+  } finally {
+    busy.value = false;
+  }
+}
+
 </script>
 
 <template>
@@ -254,7 +287,14 @@ async function validatePreview() {
         <ul v-if="installPreflight" class="mt-2 list-inside list-disc text-amber-300">
           <li v-for="warning in installPreflight.warnings" :key="warning">{{ warning }}</li>
         </ul>
-        <p class="mt-3 text-amber-300">当前只是安全预览，尚未创建安装任务、写入服务器或启动任何 Docker 容器。正式安装功能将在 M3 后续任务开放。</p>
+        <button v-if="installPreflight?.ready" type="button"
+          :disabled="busy || !!preparedTaskId" @click="savePreparedDraft"
+          class="mt-4 rounded-lg border border-sky-400/50 px-4 py-2 text-sm font-medium text-sky-200 disabled:opacity-50">
+          {{ preparedTaskId ? "安装草稿已保存（未执行）" : "加密保存待部署草稿（不会启动容器）" }}
+        </button>
+        <p v-if="preparedNotice" role="status" class="mt-3 text-emerald-300">{{ preparedNotice }}</p>
+        <p v-if="preparedTaskId" class="mt-1 break-all font-mono text-xs text-slate-400">任务 ID：{{ preparedTaskId }}</p>
+        <p class="mt-3 text-amber-300">当前预览不会部署；只有管理员明确保存后才创建加密草稿，状态仍为 prepared，绝不会自动启动 Docker。正式执行功能将在 M3 后续阶段开放。</p>
       </div>
     </section>
   </section>
