@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabaseConnection } from "../db/client.js";
@@ -99,6 +100,52 @@ export function registerContainerPool(app: FastifyInstance, db: DatabaseConnecti
       historical: row.revokedAt !== null || !hub.isOnline(row.agentId),
       stale: row.updatedAt === null || Date.now() - row.updatedAt > 5 * 60_000,
     })) };
+  });
+
+  // Register an existing Compose project in Navloom without deploying,
+  // starting, or modifying any Docker resource. Identity is stable across
+  // container recreations: (Agent ID, Compose project), not container ID.
+  app.post("/api/v1/admin/app-instances", async (request, reply) => {
+    access.requireAdmin(request);
+    const parsed = z.object({
+      agentId: z.string().uuid(),
+      composeProject: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+      templateId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/).default("external"),
+      templateVersion: z.string().min(1).max(40).default("unmanaged"),
+    }).strict().safeParse(request.body);
+    if (!parsed.success) throw new ApiFailure(400, "INVALID_INPUT", "实例信息无效");
+    const { agentId, composeProject, templateId, templateVersion } = parsed.data;
+    if (!db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId)) {
+      throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在或已撤销");
+    }
+    if (!db.sqlite.prepare("SELECT id FROM container_inventory WHERE agent_id = ? AND compose_project = ? LIMIT 1")
+      .get(agentId, composeProject)) {
+      throw new ApiFailure(409, "COMPOSE_NOT_DISCOVERED", "请先扫描 Docker 并确认 Compose 项目存在");
+    }
+    if (db.sqlite.prepare("SELECT id FROM app_instances WHERE agent_id = ? AND compose_project = ?")
+      .get(agentId, composeProject)) {
+      throw new ApiFailure(409, "INSTANCE_EXISTS", "此 Agent 的 Compose 项目已登记");
+    }
+    const id = randomUUID();
+    try {
+      db.sqlite.prepare(
+        "INSERT INTO app_instances (id, agent_id, template_id, template_version, compose_project, deployment_path, install_task_id, created_at) VALUES (?, ?, ?, ?, ?, '', ?, ?)",
+      ).run(id, agentId, templateId, templateVersion, composeProject, randomUUID(), Date.now());
+    } catch {
+      throw new ApiFailure(409, "INSTANCE_EXISTS", "实例登记冲突");
+    }
+    reply.status(201);
+    return { id };
+  });
+
+  app.delete("/api/v1/admin/app-instances/:id", async (request) => {
+    access.requireAdmin(request);
+    const parsed = deviceId.safeParse(request.params);
+    if (!parsed.success) throw new ApiFailure(400, "INVALID_INPUT", "实例 ID 无效");
+    const removed = db.sqlite.prepare("DELETE FROM app_instances WHERE id = ?").run(parsed.data.id);
+    if (removed.changes === 0) throw new ApiFailure(404, "INSTANCE_NOT_FOUND", "实例不存在");
+    // Deleting the catalog entry never touches Docker containers or bookmarks.
+    return { ok: true };
   });
 
   app.get("/api/v1/admin/app-instances", async (request) => {
