@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { X509Certificate, randomUUID } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -129,6 +129,12 @@ async function assertZeroPagePacketCapture(ports, durationMs = 5500) {
   assert.equal(result.status, 0, "isolated packet capture failed: " +
     String(result.stderr ?? "").slice(-1200));
   const report = JSON.parse(String(result.stdout).trim());
+  copyFileSync(pcap, resolve("m2-zero-page.pcap"));
+  writeFileSync(resolve("m2-zero-page.json"), JSON.stringify({
+    environment: "ephemeral GitHub-hosted single-runner",
+    measure: "Linux AF_PACKET Ethernet TCP Agent port filter",
+    ...report,
+  }, null, 2) + "\n");
   assert.equal(report.agent_tcp_packets, 0,
     "zero authenticated pages must produce zero Agent TCP packets");
   console.log("M2 isolated packet capture PASS: zero authenticated pages, zero Agent TCP packets for " +
