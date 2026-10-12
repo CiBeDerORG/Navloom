@@ -4,6 +4,7 @@ import {
   getAgentInventories, getContainerPool, getDeployedAppInstances, refreshAgentInventory,
   getAgentTask, claimComposeInstance, unclaimComposeInstance,
   controlDockerContainer, requestDockerLogs, getDockerTaskLogs,
+  createCard, getInventorySettings, updateInventorySettings,
   type AgentInventoryState, type PoolContainer, type DeployedAppInstance,
 } from "../lib/api";
 
@@ -12,6 +13,8 @@ const containers = ref<PoolContainer[]>([]);
 const instances = ref<DeployedAppInstance[]>([]);
 const agentId = ref("");
 const state = ref("");
+const source = ref("");
+const intervalMs = ref(120000);
 const search = ref("");
 const offset = ref(0);
 const total = ref(0);
@@ -32,14 +35,16 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const [pool, inv, apps] = await Promise.all([
+    const [pool, inv, apps, settings] = await Promise.all([
       getContainerPool({ agentId: agentId.value || undefined, state: state.value || undefined,
+        source: source.value ? source.value as "external" | "managed" : undefined,
         search: search.value.trim() || undefined, offset: offset.value, limit: perPage }),
-      getAgentInventories(), getDeployedAppInstances(),
+      getAgentInventories(), getDeployedAppInstances(), getInventorySettings(),
     ]);
     containers.value = pool.containers;
     devices.value = inv.agents;
     instances.value = apps.instances;
+    intervalMs.value = settings.intervalMs;
     total.value = pool.total;
     if (!containers.value.some(row => row.id === selectedId.value)) selectedId.value = "";
   } catch (cause) { error.value = cause instanceof Error ? cause.message : "容器池加载失败"; }
@@ -129,6 +134,28 @@ async function inspectLogs(row: PoolContainer) {
   } catch (cause) { error.value = cause instanceof Error ? cause.message : "读取容器日志失败"; }
   finally { busy.value = ""; }
 }
+async function saveInterval() {
+  try {
+    await updateInventorySettings(intervalMs.value);
+    notice.value = "全局 Docker 对账间隔已保存；无页面时不执行扫描";
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : "间隔保存失败"; }
+}
+async function addNavigation(row: PoolContainer) {
+  const link = window.prompt("请输入可以从浏览器访问的完整 HTTP(S) 地址（不自动猜测宿主 IP 或端口）：", "");
+  if (!link) return;
+  try {
+    const url = new URL(link);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+      error.value = "导航地址必须是无内嵌账号密码的 HTTP(S) 链接";
+      return;
+    }
+    await createCard({
+      title: row.name, url: url.href, icon: null, description: row.image,
+      groupId: null, openTarget: "_blank",
+    });
+    notice.value = "已创建导航卡片；Docker 容器未发生任何变更";
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : "创建导航卡片失败"; }
+}
 function query() { offset.value = 0; void load(); }
 onMounted(() => { void load(); });
 </script>
@@ -165,7 +192,20 @@ onMounted(() => { void load(); });
         <option value="">全部状态</option>
         <option v-for="value in ['running','exited','paused','restarting','created','dead','unknown']" :key="value" :value="value">{{ value }}</option>
       </select>
+      <select v-model="source" class="rounded-lg border border-white/20 bg-slate-950 px-3 py-2 text-sm" aria-label="容器来源">
+        <option value="">全部来源</option><option value="managed">已登记应用</option><option value="external">外部容器</option>
+      </select>
       <button class="rounded-lg bg-sky-600 px-3 py-2 text-sm">筛选</button>
+    </form>
+    <form class="flex flex-wrap items-center gap-2 text-sm" @submit.prevent="saveInterval">
+      <label for="inventory-interval" class="text-slate-400">自动全量对账：</label>
+      <select id="inventory-interval" v-model.number="intervalMs" class="rounded-lg border border-white/20 bg-slate-950 px-3 py-2">
+        <option :value="30000">30 秒</option><option :value="60000">1 分钟</option>
+        <option :value="120000">2 分钟</option><option :value="300000">5 分钟</option>
+        <option :value="600000">10 分钟</option><option :value="3600000">1 小时</option>
+      </select>
+      <button type="submit" class="rounded-lg border border-sky-500/40 px-3 py-2">保存</button>
+      <span class="text-xs text-slate-500">只在已授权页面在线时运行</span>
     </form>
     <p v-if="error" role="alert" class="text-sm text-rose-300">{{ error }}</p>
     <p v-if="notice" role="status" class="text-sm text-emerald-300">{{ notice }}</p>
@@ -203,6 +243,8 @@ onMounted(() => { void load(); });
         <button class="rounded-lg border border-white/20 px-3 py-1 text-xs disabled:opacity-40"
           :disabled="!!busy" @click="inspectLogs(selected)">查看最近 100 行日志</button>
       </div>
+      <button type="button" class="mt-3 rounded-lg border border-sky-500/40 px-3 py-1 text-xs"
+        @click="addNavigation(selected)">创建导航卡片（仅保存链接）</button>
       <p v-if="selected.stale" class="mt-2 text-xs text-amber-300">快照过期，需先扫描确认，才可操作 Docker。</p>
       <pre v-if="logs.length" class="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-950 p-3 text-xs text-slate-300">{{ logs.join('\n') }}</pre>
     </div>
