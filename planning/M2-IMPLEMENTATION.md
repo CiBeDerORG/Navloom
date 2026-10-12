@@ -194,3 +194,17 @@ npm run test:go
 - **Agent 接收侧防重放**：Go 被动 `/agent` 会话在成功验证 v2 任务信封后，检查本会话的 `task_id` 与 `message_id` 去重集合；相同 ID 不重复执行只读 `capability_probe`，直接发 WSS policy violation 关闭帧；每个会话最多接受 1,024 个任务以防无限内存占用。新的 Go TLS WebSocket 回归分别使用不同 message_id 重放 task_id，以及使用不同 task_id 重放 message_id，验证首个任务成功而第二个被拒绝。
 - **Server 新旧会话隔离**：新增 Node 回归覆盖同一 Agent 的新会话替换旧连接时，将旧未决任务视为 `unknown`，旧连接的结果、Pong、close callback 不得修改新会话、任务状态或能力快照。Go 和 Server 验证不产生新的周期性 Agent 心跳。
 - **重要限制**：Agent 去重集合仅维持在**单条 WSS 会话内**，断开或进程重启后失效。当前只执行只读探测；将来 T-055 开放 `container_start/stop/restart`、Compose 等副作用命令前，须设计并验收持久化去重/执行记录与明确的断连结果恢复规则，绝不能把本阶段的会话去重宣传为跨重启 exactly-once。真实 NAS 网络抓包、浏览器与 Codex 独立验收仍未完成，T-044/T-045/T-047 保持 `NOT_RUN`。
+
+## T-048～T-059 容器池完整功能代码联通（2026-10-12，自动化阶段）
+
+在继续保留 T-034～T-047 反向按需 WSS 架构和 **0 页面无 Agent↔Server 通信** 前提下，已新增以下实现：
+
+- **T-048/T-049/T-051**：Go Agent 使用限定 Docker Unix Socket 的固定只读 HTTP API `GET /containers/json?all=1` 一次列举启动前已存在、运行中与已停止容器（不依赖 Agent 启动后的事件）。采集容器 ID、名称、镜像、规范化状态/端口、仅允许的 Compose project/service labels（不上传其他 Docker labels）。最多 2,000 个容器，按 20 条一段发送严格 v2 `inventory_chunk`，Server 验证 Agent ID、task_id、顺序/总数并使用单事务替换快照；断线、失败、重复/越权片段不覆盖旧快照。记录独立全量扫描时间和 count。实现出于安全最小化使用 Docker Unix HTTP 协议而非引入 Docker SDK，接口与 Docker API 兼容。
+- **T-050**：仅在至少一个有效页面在线的 WSS 生命周期内，Go Agent 订阅本地 Docker `/events`，对 container create/start/stop/die/destroy/rename/pause/unpause/restart/update 变更发通知；Server 1 秒防抖后发起只读全量校正。另按全局管理员可配置（30 秒至 1 小时）的间隔进行全量核对；首次连接也全量扫描；最后页面离开后取消事件监听、对账定时器与所有 Agent WSS。**当前事件策略是触发全量收敛，不是逐容器 delta patch；仍须大量容器实测和性能验收。**
+- **T-052～T-054**：管理员 `/admin/containers` 支持 Agent、状态、来源、名称/镜像搜索、分页与详情；`/admin/agent-inventory` 返回快照时间、容器数、实时/历史/过期标志；`AdminInstancesView` 内有响应式容器池、扫描、来源筛选和空状态。0 页面历史数据保持不变，不向首页自动推送。
+- **T-055**：管理员对已发现且 5 分钟内快照未过期的单个容器显式确认才可提交 `container_start/stop/restart`。Server 保存幂等 UUID 与任务、旧请求只返回旧 task_id，不重发；Agent 仅固定 Docker Unix Socket 的 POST `/containers/{hexId}/{start|stop|restart}`，先在私有 `token_file.operations.jsonl` 中持久认领任务并 fsync。断连/进程崩溃未能确认结果保留 `unknown`，**不自动重试**；绝无容器删除、任意 shell、Docker exec 或未经审计的 Compose 部署。受控操作只在管理员明确触发时发生；隔离测试不接触真实 NAS/Docker。
+- **T-056/T-057**：已有 `app_instances` 模型配合新增管理员实例列表/详情/登记/取消登记 API。稳定关联 Agent ID + Compose project（跨容器重建）；发现外部容器不会自动登记。管理员可手动关联现有 Compose 项目，`template_id=external` 的记录仍视为外部来源。取消目录登记不会停止/删除 Docker 容器。
+- **T-058**：管理员可请求单个已发现容器最近最多 100 行、每行不超 512 字节、请求/响应有超时与总大小上限的只读日志。Agent 解析 Docker 非 TTY multiplex 日志头，尽量遮盖常见 password/token/API key/Bearer 格式。日志任务与结果限定到同一 Agent，按 task_id/sequence 持久存储；不在浏览器后台持续跟随日志。
+- **T-059**：`agent/internal/probe/inventory_test.go`、`control_test.go`、`events_test.go`、`transport/journal_test.go` 和 `server/src/m2-inventory.test.ts`、`m2-container-operations.test.ts` 覆盖隔离 Unix Docker API（包括启动前已存在与停止容器）、秘密 label 过滤、管理员权限、A/B 隔离、原子快照/空快照、快照过期、Compose 关联、幂等键冲突/跨重启不重复下发、日志绑定与限量、基本动作路径/非法命令拒绝。页面可从容器池**手动填写访问 URL**生成导航卡片，绝不推测地址或修改 Docker。
+
+**阶段边界**：CI 是自动化代码回归，不是 Codex 独立验收。真实 NAS 的 Docker 权限、跨设备首页/WSS 生命周期、Docker 大规模事件与日志、TLS 轮换、包级 0 页面通信以及真实容器启停与重建验证仍不能伪称 PASS。T-048～T-059 现有代码功能覆盖不等于任务验收状态为完成，验收复选框保留待执行；未获取真实 NAS 或运行中 Docker 的操作授权。
