@@ -221,3 +221,11 @@ npm run test:go
 为补足原有 mock Docker API 的限制，现将 `scripts/smoke-m2-reverse.mjs` 扩展为**显式 opt-in 的一次性真实 Docker 验收**（仅 GitHub Actions，拒绝显式 `DOCKER_HOST`，执行后自动清理专用镜像和容器）。沿用两台独立真实 Go Agent 与 Node Server 的双向 TLS 私网 WSS 联调，同时验证发现先前运行中/已停止容器、容器 Compose 标签与敏感标签隔离、按 Agent 隔离的清单和实例关联、管理员显式启动/停止/重启、真实容器日志脱敏、Docker destroy 后事件收敛。提交 `1155a5c`、`b82f694`、`54d8332`；[CI 38211915345](https://github.com/CiBeDerORG/Navloom/actions/runs/38211915345) 四项成功，集成日志明确输出 `M2 disposable real-Docker acceptance PASS`。
 
 此测试使用 **同一 GitHub-hosted runner 上的一个独立 Docker daemon**。真实家庭 FNOS/NAS、不同机器独立 Docker daemon、跨地域 EasyTier 网络、真实移动浏览器页面管理、包级零流量抓包、TLS 身份轮换/迁移及大规模容器压力验收**尚未完成**。因此不得将 M2 剩余任务的验收勾选视为已全部通过。
+
+## 2026-10-12 第二轮可复跑验收：真实浏览器与原始零包计数
+
+- **真实网页和浏览器**：在 GitHub Ubuntu Runner 启动临时 Server、Vite、两台真实 Go 被动 Agent 与真实无头 Chrome；从实际首页弱口令页面输入口令、打开第二个导航标签、管理员登录页登录并进入后台，验证匿名页面不激活 Agent、多页面全局唯一 Agent WSS、剩余管理员页面仍保持连接，以及所有页面关闭后 WSS 断开。脚本 scripts/m2-chromium.mjs。
+- **真实 Docker**：继续使用经 GITHUB_ACTIONS 环境约束的临时专用镜像/容器（不是用户 NAS），真实 Docker all=1、启停重启、Compose 项目关联、Docker events、脱敏日志与双 Go Agent 隔离通过。
+- **隔离环境原始包级测试**：scripts/m2-packet-capture.py 在 Linux AF_PACKET 原始 Ethernet socket 上抓取两个临时 Agent 监听端口的双向 TCP 报文；最后一个登录页面退出后留出 TCP 收敛时间，再抓取完整 5.5 秒自动 Ping 周期。实测计数 **0 包**，生成临时 pcap/JSON 计数，CI 日志有 M2 isolated packet capture PASS。它仅覆盖 GitHub 单主机测试端口，**不能推广为生产 NAS 与跨家庭 EasyTier 全协议零流量结论**。
+- **证据**：[GitHub Actions 38218183281](https://github.com/CiBeDerORG/Navloom/actions/runs/38218183281) **4/4 PASS**；同一集成日志可见 M2 real Chromium PASS、M2 disposable real-Docker acceptance PASS、M2 isolated packet capture PASS、M2 reverse WSS v2 PASS。
+- **完整剩余项和逐项交接**：唯一 Codex 文件 planning/M1-CODEX-REGRESSION.md 现已设定“【M2 最新总控】”，包含 26 项证据/待验收条件矩阵、实体设备/浏览器/实网抓包/授权 Docker/规格差异五组执行要求。无实机设备与操作授权的项目按 BLOCKED_ENV 留下明确依据；不得把自动化 PASS 等同正式 T-034～T-059 全部 PASS，任务勾选维持原状。
