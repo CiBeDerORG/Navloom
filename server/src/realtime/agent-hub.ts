@@ -26,6 +26,8 @@ export class AgentHub {
   private readonly sessions = new Map<string, Session>();
   private readonly sweep: ReturnType<typeof setInterval>;
   private readonly helloTimeoutMs: number;
+  private inventorySync = false;
+  private inventoryTimer: ReturnType<typeof setInterval> | null = null;
   private readonly pongTimeoutMs: number;
   readonly tasks: AgentTasks;
 
@@ -62,6 +64,26 @@ export class AgentHub {
     const active = this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId);
     if (!active) throw new ApiFailure(404, "AGENT_NOT_FOUND", "设备不存在或已撤销");
     return this.tasks.dispatchCapabilityProbe(agentId, session.socket);
+  }
+
+  /** This scheduler exists only while at least one authenticated browser page is open. */
+  setInventorySyncActive(active: boolean): void {
+    if (this.inventorySync === active) return;
+    this.inventorySync = active;
+    if (this.inventoryTimer) clearInterval(this.inventoryTimer);
+    this.inventoryTimer = null;
+    if (!active) return;
+    for (const agentId of this.sessions.keys()) this.refreshInventoryIfConnected(agentId);
+    this.inventoryTimer = setInterval(() => {
+      for (const agentId of this.sessions.keys()) this.refreshInventoryIfConnected(agentId);
+    }, 120_000);
+    this.inventoryTimer.unref();
+  }
+
+  private refreshInventoryIfConnected(agentId: string): void {
+    if (!this.inventorySync || !this.isOnline(agentId)) return;
+    try { this.requestInventoryRefresh(agentId); }
+    catch { /* disconnected/revoked peers are never polled */ }
   }
 
   requestInventoryRefresh(agentId: string): string {
@@ -143,6 +165,7 @@ export class AgentHub {
   }
 
   shutdown(): void {
+    this.setInventorySyncActive(false);
     clearInterval(this.sweep);
     for (const id of this.sessions.keys()) this.disconnect(id, 1001, "server shutdown");
   }
@@ -205,6 +228,9 @@ export class AgentHub {
       if (session.helloTimeout) clearTimeout(session.helloTimeout);
       session.helloTimeout = null;
       this.touch(session, message.payload.version);
+      // Inventory uses only read-only Docker inspection while pages exist.
+      // Connectivity Ping/Pong remains a separate global scheduler.
+      this.refreshInventoryIfConnected(session.agentId);
       // Capability tasks require a separate explicit administrator request.
     } else if (message.type === "inventory_chunk") {
       if (!this.tasks.acceptInventoryChunk(session.agentId, message)) {
