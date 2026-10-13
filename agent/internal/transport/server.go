@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/CiBeDerORG/Navloom/agent/internal/config"
+	"github.com/CiBeDerORG/Navloom/agent/internal/deploy"
 	"github.com/CiBeDerORG/Navloom/agent/internal/pairing"
 	"github.com/CiBeDerORG/Navloom/agent/internal/probe"
 	"github.com/CiBeDerORG/Navloom/agent/internal/protocol"
@@ -46,7 +47,7 @@ func RunPassive(ctx context.Context, cfg config.Config, identity pairing.Identit
 	}
 	defer listener.Close()
 	server := &http.Server{
-		Handler:           passiveHandler(ctx, identity, version, log, journal),
+		Handler:           passiveHandlerWithDeploymentRoot(ctx, identity, version, log, cfg.DeployRoot, journal),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -123,6 +124,10 @@ func hasExtKeyUsage(cert *x509.Certificate, wanted x509.ExtKeyUsage) bool {
 }
 
 func passiveHandler(ctx context.Context, identity pairing.Identity, version string, log *slog.Logger, journals ...*operationJournal) http.Handler {
+	return passiveHandlerWithDeploymentRoot(ctx, identity, version, log, "", journals...)
+}
+
+func passiveHandlerWithDeploymentRoot(ctx context.Context, identity pairing.Identity, version string, log *slog.Logger, root string, journals ...*operationJournal) http.Handler {
 	var journal *operationJournal
 	if len(journals) > 0 {
 		journal = journals[0]
@@ -245,6 +250,28 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 			seenTasks[task.TaskID] = struct{}{}
 			seenMessages[task.MessageID] = struct{}{}
 			switch protocol.TaskOperation(task) {
+			case "compose_status":
+				if root == "" {
+					result, err := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "deployment receipt directory not configured")
+					if err != nil || send(result) != nil {
+						return
+					}
+					continue
+				}
+				installTaskID := protocol.TaskInstallID(task)
+				receipt, err := (deploy.Executor{Root: root}).Reconcile(installTaskID)
+				if err != nil {
+					result, failed := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "deployment receipt unavailable")
+					if failed != nil || send(result) != nil {
+						return
+					}
+					continue
+				}
+				result, err := protocol.NewComposeStatusResult(identity.AgentID, task.TaskID,
+					receipt.TaskID, receipt.Status, receipt.Project, receipt.ExitCode)
+				if err != nil || send(result) != nil {
+					return
+				}
 			case "capability_probe":
 				capabilities := probe.DiscoverDocker(ctx)
 				result, err := protocol.NewCapabilityResult(identity.AgentID, task.TaskID, capabilities)
