@@ -144,6 +144,49 @@ export class InstallTaskStore {
     })();
   }
 
+  /**
+   * Accept a result only from its pinned Agent identity after authenticated
+   * mTLS WSS. This method is a state-store primitive, NOT an exposed HTTP
+   * endpoint and does not send, replay or initiate Compose commands.
+   *
+   * An unrecorded CLI result must remain unknown, never "failed".
+   */
+  reconcileAgentResult(receipt: {
+    taskId: string;
+    agentId: string;
+    status: "not_found" | "unknown" | "succeeded" | "failed";
+    exitCode: number | null;
+  }): InstallRow {
+    const row = this.get(receipt.taskId);
+    if (!row || row.agentId !== receipt.agentId) {
+      throw new InstallStateError("Install task not owned by this Agent");
+    }
+    if (row.status === "prepared") {
+      throw new InstallStateError("Unactivated install task cannot receive an Agent result");
+    }
+    const terminal = row.status === "succeeded" || row.status === "failed";
+    if (receipt.status === "not_found" || receipt.status === "unknown") {
+      if (receipt.exitCode !== null) throw new InstallStateError("Unknown result must not claim an exit code");
+      if (terminal || row.status === "unknown") return row;
+      return this.markUncertain(row.id);
+    }
+    if (!Number.isSafeInteger(receipt.exitCode) || receipt.exitCode === null || receipt.exitCode < 0 ||
+        (receipt.status === "succeeded" && receipt.exitCode !== 0) ||
+        (receipt.status === "failed" && receipt.exitCode === 0)) {
+      throw new InstallStateError("Inconsistent Compose status and exit code");
+    }
+    if (terminal) {
+      if (row.status !== receipt.status || row.exitCode !== receipt.exitCode) {
+        throw new InstallStateError("Conflicting late Agent result");
+      }
+      return row;
+    }
+    if (row.status === "pending") {
+      throw new InstallStateError("Task was never activated for remote execution");
+    }
+    return this.reportExit(row.id, receipt.exitCode);
+  }
+
   // Task dispatch is allowed only from pending, and the Agent must journal a
   // task ID before executing. Unknown is never auto-resubmitted as pending.
   markStarted(id: string): InstallRow { return this.transition(id, "running"); }
