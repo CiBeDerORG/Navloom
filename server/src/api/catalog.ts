@@ -36,6 +36,31 @@ export function registerCatalog(app: FastifyInstance, access: Access, db: Databa
     });
   });
 
+  app.post("/api/v1/admin/install/tasks/:id/reconcile", async (request, reply) => {
+    access.requireAdmin(request);
+    const path = z.object({ id: z.string().uuid() }).strict().safeParse(request.params);
+    if (!path.success || !z.object({}).strict().safeParse(request.body ?? {}).success) {
+      throw new ApiFailure(400, "INVALID_INPUT", "安装任务对账请求无效");
+    }
+    const task = new InstallTaskStore(db).get(path.data.id);
+    if (!task) throw new ApiFailure(404, "TASK_NOT_FOUND", "安装任务不存在");
+    const queryTaskId = hub.requestInstallReceiptQuery(task.agentId, task.id);
+    reply.status(202);
+    return { installTaskId: task.id, queryTaskId, operation: "compose_status",
+      installationDispatched: false, message: "仅查询 Agent 的持久回执，不会执行 Docker Compose" };
+  });
+
+  app.get("/api/v1/admin/install/tasks/:id", async (request) => {
+    access.requireAdmin(request);
+    const path = z.object({ id: z.string().uuid() }).strict().safeParse(request.params);
+    if (!path.success) throw new ApiFailure(400, "INVALID_INPUT", "安装任务 ID 无效");
+    const task = new InstallTaskStore(db).get(path.data.id);
+    if (!task) throw new ApiFailure(404, "TASK_NOT_FOUND", "安装任务不存在");
+    return { task: { id: task.id, agentId: task.agentId, templateId: task.templateId,
+      templateVersion: task.templateVersion, status: task.status, exitCode: task.exitCode,
+      createdAt: task.createdAt, updatedAt: task.updatedAt } };
+  });
+
   app.get("/api/v1/admin/install/prepared-tasks", async (request) => {
     access.requireAdmin(request);
     const rows = db.sqlite.prepare(
