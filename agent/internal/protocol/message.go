@@ -132,6 +132,13 @@ func DecodeTaskDispatch(data []byte, expectedAgentID string) (Message, error) {
 		if err := strictJSON(payload.Arguments, &args); err != nil {
 			return msg, errors.New("read-only task takes no arguments")
 		}
+	case "compose_status":
+		var args struct {
+			InstallTaskID string `json:"install_task_id"`
+		}
+		if err := strictJSON(payload.Arguments, &args); err != nil || !uuidPattern.MatchString(args.InstallTaskID) {
+			return msg, errors.New("invalid Compose status query")
+		}
 	case "container_start", "container_stop", "container_restart", "container_logs":
 		var args struct {
 			ContainerID string `json:"container_id"`
