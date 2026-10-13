@@ -35,6 +35,7 @@ export const AgentCommandSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("container_stop"), arguments: z.object({ container_id: containerId }).strict() }).strict(),
   z.object({ operation: z.literal("container_restart"), arguments: z.object({ container_id: containerId }).strict() }).strict(),
   z.object({ operation: z.literal("container_logs"), arguments: z.object({ container_id: containerId }).strict() }).strict(),
+  z.object({ operation: z.literal("compose_status"), arguments: z.object({ install_task_id: z.string().uuid() }).strict() }).strict(),
   z.object({
     operation: z.literal("compose_deploy"),
     arguments: z.object({
@@ -139,6 +140,12 @@ export const AgentMessageSchema = z.discriminatedUnion("type", [
       capabilities: AgentCapabilitiesSchema.optional(),
       inventory_count: z.number().int().min(0).max(2000).optional(),
       inventory_chunks: z.number().int().min(0).max(100).optional(),
+      install_receipt: z.object({
+        install_task_id: z.string().uuid(),
+        status: z.enum(["not_found", "unknown", "succeeded", "failed"]),
+        project: z.string().max(63),
+        exit_code: z.number().int().min(0).nullable(),
+      }).strict().optional(),
     }).strict(),
   }).strict(),
 ]);
