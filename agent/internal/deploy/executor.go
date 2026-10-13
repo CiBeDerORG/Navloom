@@ -136,6 +136,19 @@ type Executor struct {
 // A crash, timeout or failed command leaves the claim, and must be reconciled
 // before any explicit NEW task; replay of the same task never runs Compose.
 func (e Executor) Execute(ctx context.Context, taskID string, raw []byte) (int, error) {
+	code, err := e.executeClaimed(ctx, taskID, raw)
+	// A missing or unverified CLI exit status is UNKNOWN: never invent failure.
+	// The durable claim still prevents replay after a crash or disconnection.
+	if code < 0 {
+		return code, err
+	}
+	if persistErr := e.persistResult(taskID, code); persistErr != nil {
+		return -1, errors.New("Compose exit result was not durably recorded; task requires reconciliation")
+	}
+	return code, err
+}
+
+func (e Executor) executeClaimed(ctx context.Context, taskID string, raw []byte) (int, error) {
 	if !uuidPattern.MatchString(taskID) {
 		return -1, errors.New("invalid deployment task ID")
 	}
