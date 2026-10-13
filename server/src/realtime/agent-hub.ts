@@ -57,6 +57,25 @@ export class AgentHub {
     };
   }
 
+  /** Explicit administrator-initiated read-only reconciliation over an existing WSS. */
+  requestInstallReceiptQuery(agentId: string, installTaskId: string): string {
+    const session = this.sessions.get(agentId);
+    if (!session || !session.helloReceived || !this.isOnline(agentId)) {
+      throw new ApiFailure(409, "AGENT_OFFLINE", "Agent 未连接，无法查询持久执行回执");
+    }
+    if (!this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId)) {
+      throw new ApiFailure(404, "AGENT_NOT_FOUND", "Agent 不存在或已撤销");
+    }
+    try {
+      return this.tasks.dispatchInstallReceiptQuery(agentId, installTaskId, session.socket);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("not eligible")) {
+        throw new ApiFailure(409, "TASK_NOT_RECONCILABLE", "安装草稿尚未执行或任务不属于目标 Agent");
+      }
+      throw error;
+    }
+  }
+
   requestCapabilityProbe(agentId: string): string {
     const session = this.sessions.get(agentId);
     if (!session || !session.helloReceived || !this.isOnline(agentId)) {
