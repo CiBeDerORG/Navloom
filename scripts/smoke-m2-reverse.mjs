@@ -362,10 +362,10 @@ try {
   const projectForReceipt = "navloom-nginx-abcdefgh";
   writeFileSync(join(first.deployRoot, ".deploy.lock"), "", { mode: 0o600 });
   writeFileSync(join(first.deployRoot, ".claims.jsonl"),
-    JSON.stringify({ task_id: knownInstallId, project: projectForReceipt, digest: "a".repeat(64) }) + "\\n",
+    JSON.stringify({ task_id: knownInstallId, project: projectForReceipt, digest: "a".repeat(64) }) + "\n",
     { mode: 0o600 });
   writeFileSync(join(first.deployRoot, ".result-" + knownInstallId + ".json"),
-    JSON.stringify({ task_id: knownInstallId, exit_code: 0 }) + "\\n", { mode: 0o600 });
+    JSON.stringify({ task_id: knownInstallId, exit_code: 0 }) + "\n", { mode: 0o600 });
   const statusQuery = await call("/api/v1/admin/install/tasks/" + knownInstallId + "/reconcile", "POST", {}, cookie);
   assert.equal(statusQuery.status, 202);
   assert.equal(statusQuery.payload.installationDispatched, false);
