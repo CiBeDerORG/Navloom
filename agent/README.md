@@ -64,6 +64,14 @@ go run ./cmd/navloom-agent -config ./agent-config.json
 
 构建：`go test ./...`、`./scripts/build-linux.sh`。配置字段参考 [config.example.json](./config.example.json)，新架构与未完成项见 [M2 实施记录](../planning/M2-IMPLEMENTATION.md)。
 
+## M3 · Compose 执行回执和只读远程对账（开发中）
+
+- 本地 Go `internal/deploy` 执行器已经能在隔离 Docker 环境使用固定 Compose 命令，安全记录任务认领、0600 配置文件以及 Docker CLI 的确切退出码。回执另存 0600 JSON、执行结束后 `fsync`。如果 Agent 在执行后、回执落盘前退出，只能报告 `unknown`，**不能假设失败或重试部署**。
+- 为现有部署任务启用**只读回执查询**，可在 Agent 配置文件加入 `"deploy_root": "/var/lib/navloom/deployments"`，或通过 `NAVLOOM_AGENT_DEPLOY_ROOT` 指定同一受控目录。目录必须是所在设备自己的绝对路径，权限 0700，由可信部署组件创建；无目录时 Agent 拒绝查询、不会自动执行 Docker。不要把这个根路径指向系统目录、共享数据卷或现有应用目录。
+- `compose_status` 是独立、只读的 WSS 命令；通过双向 TLS 认证的 Server 才能请求指定 `install_task_id` 的回执。Go Agent 只返回 `not_found`、`unknown`、`succeeded` 或 `failed` 和持久退出码，不包含 Compose 环境变量、密码或输出日志。
+- Server 仅管理员能够调用 `POST /api/v1/admin/install/tasks/:id/reconcile` 发起查询。若没有已登录页面维持 Agent WSS，查询会拒绝而**不会**创建定时拨号/后台轮询。查询一个 `prepared` 草稿也会拒绝；这不是执行任务的入口。完整派发、管理员激活、实时脱敏日志与自动生成导航卡片仍待 M3 后续任务完成。
+- **警告**：当前仍不支持从云端运行 `compose_deploy`。本地执行器在测试或经授权的本机集成环境内验证过，不代表可以直接接管真实 NAS 的 Docker 容器。
+
 ## 旧版 Agent 升级
 
 旧 v1 主动 WSS 身份文件不能静默升级。先停止旧 Agent，安全备份配置和私有凭据；在 Server 管理后台撤销旧设备。配置新的私网监听 IP/端口，生成 Agent TLS 证书，并安全归档旧身份文件（配对命令拒绝覆盖）。管理员生成新的一次性令牌后执行 `-pair`，再启动新版 Agent。重新配对会建立 v2 协议与双向 TLS 信任；旧设备历史数据不会因为撤销而被删除。
