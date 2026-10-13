@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"path/filepath"
 	"os"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ type Config struct {
 	EndpointPort     int    `json:"endpoint_port"`
 	TLSCertFile      string `json:"tls_cert_file"`
 	TLSKeyFile       string `json:"tls_key_file"`
+	DeployRoot       string `json:"deploy_root"`
 	AllowInsecureDev bool   `json:"allow_insecure_dev"`
 }
 
@@ -49,6 +51,9 @@ func Load(path string) (Config, error) {
 	if value := os.Getenv("NAVLOOM_AGENT_NAME"); value != "" {
 		cfg.AgentName = value
 	}
+	if value := os.Getenv("NAVLOOM_AGENT_DEPLOY_ROOT"); value != "" {
+		cfg.DeployRoot = value
+	}
 	if value := os.Getenv("NAVLOOM_AGENT_TOKEN_FILE"); value != "" {
 		cfg.TokenFile = value
 	}
@@ -67,6 +72,9 @@ func Load(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.DeployRoot != "" && (!filepath.IsAbs(c.DeployRoot) || filepath.Clean(c.DeployRoot) != c.DeployRoot || c.DeployRoot == "/") {
+		return errors.New("Agent deployment root must be an absolute, canonical private directory")
+	}
 	if strings.TrimSpace(c.AgentName) == "" {
 		return errors.New("Agent name must not be empty")
 	}
