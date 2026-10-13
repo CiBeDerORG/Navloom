@@ -73,3 +73,14 @@
 - scripts/smoke-m2-reverse.mjs：同一 CI 真实双 Agent、Node Server、Chrome、临时 Docker/Compose 及零页面抓包中调用上述真实 Go 执行器测试。证据 [GitHub Actions 38235600666](https://github.com/CiBeDerORG/Navloom/actions/runs/38235600666) **4/4 PASS**，日志含 M3 disposable Go Compose v2 executor PASS 与历史 M3 加密草稿/Agent 预检 PASS。CI 已将 internal/deploy 纳入 Go race 检测。
 
 **重要边界与后续顺序**：这是本地受限执行模块，**并非正式的远程安装成功**。T-074 仍须建立 Server 受控领取/明确管理员激活 API 与审查后的 Agent 协议信封；T-076/T-077 还需 Agent 侧身份/参数/目录全链路绑定；T-078～T-081 需要安全日志、fsync 任务最终结果回报和断线未知任务对账；T-083～T-088 需要唯一实例与唯一导航卡片事务。M3 29 项正式签核保持原状。CiBeDerORG/deploy 未修改，后续如需修改，先在 deploy 新建分支。
+
+
+## 2026-10-13 第四轮：Agent 持久回执、mTLS WSS 只读对账（仍未开放远程执行）
+
+- **T-080 执行记录的基础**：Go Agent local `internal/deploy` 新增 `receipts.go`。Executor 在获得 Docker Compose CLI 的**真实退出码**后，才使用 0600 文件及 `fsync` 将 `task_id+exit_code` 落入私有部署根目录；失败的非零退出码也持久保留，不记录 stdout、stderr、原始参数或密码。执行前已 fsync 的 claim 和执行后的 result 两份独立记录共同判断恢复状态。
+- **T-081 未知任务安全恢复**：`Executor.Reconcile(taskID)` 只能读取私有、拒绝符号链接的 claim/result。已有认领却没有可靠 result 时返回 `unknown`（可能 CLI 已执行且崩溃）；未有 claim 返回 `not_found`；退出码 0 返回 `succeeded`；非零返回 `failed`。**任何查询均不调用 Docker，不触发重试**。回执异常/篡改/密钥权限异常必须失败关闭。
+- **Agent mTLS WSS 查询命令**：仅增加只读的 `compose_status`，参数只有严格 UUID 格式的 `install_task_id`。Agent 配置新增可选 `deploy_root` / `NAVLOOM_AGENT_DEPLOY_ROOT`，留空时不能查询本地部署历史；配置为可验证私有绝对目录才允许读取。Go 严格协议白名单仍拒绝 `compose_deploy` / 任意 Shell、host path、脚本。Agent 查询回报 `task_result.install_receipt` 与查询任务 ID 分开关联，查询通信成功**不表示部署成功**。
+- **Server 安全任务对账**：`AgentTasks.dispatchInstallReceiptQuery` 在已有在线 mTLS WSS、指定 Agent 与已有非 `prepared` 安装任务间路由一次只读查询。回报必须来自同一 Agent、匹配 query 中的 `install_task_id`、退出码与 `succeeded/failed/unknown/not_found` 一致。存储事务调用 `InstallTaskStore.reconcileAgentResult`：迟到但已落盘的真实退出码可把 `running/unknown` 修复为终态；没查到/无法确认则保持 `unknown`；终态重放幂等、矛盾回报拒绝；绝不把 `prepared` 草稿当成安装成功。
+- **管理员接口**：GET `/api/v1/admin/install/tasks/:id` 只返回 ID、Agent、模板版本、状态、退出码与时间；POST `/api/v1/admin/install/tasks/:id/reconcile` 仅在管理员登录且目标 Agent 已在线时请求只读对账，返回单独的 queryTaskId。首页弱口令不能查询。页面未在线导致 WSS 关闭时不会为了对账启动后台 Agent 通信。
+- **已开发测试**：Go `receipts_test.go` 验证成功/失败/重启/unknown/非法回执及不重放，`compose_status_test.go` 验证任意执行命令仍禁止；Server `m3-reconcile.test.ts` 验证 Agent A/B 隔离、query/install ID 分离、终态重复回报、prepared 拒绝、管理员无秘密详情。真实双 Go Agent mTLS WSS 集成脚本补充受控 SQLite + 私有回执**模拟夹具**，查实成功和没有回执的 unknown。模拟回执只证明协议和数据库对账；真 Docker Compose 已由单独的隔离 Runner 执行模块验收。
+- **尚缺关键闭环**：明确管理员激活并派发真正的 `compose_deploy`、密钥安全传输和 Agent 能力校验、执行开始/结果确认协议、日志流式回传、Server/Agent 恢复后自动但仍页面驱动的状态对账、应用实例与导航卡片原子创建（T-074/T-076～T-088）。**当前无远程安装或设备 Docker 副作用入口**。不得勾选整个 M3 完成。CiBeDerORG/deploy 此轮未修改；如需改 deploy 仍必须先新建分支。
