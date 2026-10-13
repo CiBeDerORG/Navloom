@@ -367,7 +367,7 @@ try {
   writeFileSync(join(first.deployRoot, ".result-" + knownInstallId + ".json"),
     JSON.stringify({ task_id: knownInstallId, exit_code: 0 }) + "\n", { mode: 0o600 });
   const statusQuery = await call("/api/v1/admin/install/tasks/" + knownInstallId + "/reconcile", "POST", {}, cookie);
-  assert.equal(statusQuery.status, 202);
+  assert.ok(statusQuery.payload.queryTaskId, "read-only query must return a correlated task ID");
   assert.equal(statusQuery.payload.installationDispatched, false);
   await until(async () => (await call(
     "/api/v1/admin/install/tasks/" + knownInstallId, "GET", undefined, cookie
@@ -375,7 +375,7 @@ try {
   const restored = await call("/api/v1/admin/install/tasks/" + knownInstallId, "GET", undefined, cookie);
   assert.equal(restored.payload.task.exitCode, 0);
   const unknownQuery = await call("/api/v1/admin/install/tasks/" + unknownInstallId + "/reconcile", "POST", {}, cookie);
-  assert.equal(unknownQuery.status, 202);
+  assert.ok(unknownQuery.payload.queryTaskId, "unknown receipt query must still return an audit task ID");
   await until(async () => (await call(
     "/api/v1/admin/install/tasks/" + unknownInstallId, "GET", undefined, cookie
   )).payload.task.status === "unknown");
