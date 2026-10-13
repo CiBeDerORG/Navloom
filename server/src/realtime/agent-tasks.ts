@@ -267,6 +267,9 @@ export class AgentTasks {
         const install = new InstallTaskStore(this.db).get(receipt.install_task_id);
         if (!install || install.agentId !== agentId || install.status === "prepared" ||
             (install.status === "pending" && (receipt.status === "succeeded" || receipt.status === "failed"))) return false;
+        if ((install.status === "succeeded" || install.status === "failed") &&
+            (receipt.status === "succeeded" || receipt.status === "failed") &&
+            (install.status !== receipt.status || install.exitCode !== receipt.exit_code)) return false;
       }
     } else if (message.payload.install_receipt) {
       return false;
