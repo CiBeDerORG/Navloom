@@ -50,13 +50,13 @@ func NewComposeStatusResult(agentID, queryTaskID, installTaskID, status, project
 		return Message{}, err
 	}
 	payload, err := json.Marshal(struct {
-		Success       bool `json:"success"`
-		ExitCode      *int `json:"exit_code"`
+		Success        bool `json:"success"`
+		ExitCode       *int `json:"exit_code"`
 		InstallReceipt struct {
 			InstallTaskID string `json:"install_task_id"`
 			Status        string `json:"status"`
 			Project       string `json:"project"`
-			ExitCode      *int `json:"exit_code"`
+			ExitCode      *int   `json:"exit_code"`
 		} `json:"install_receipt"`
 	}{
 		Success: true,
@@ -64,7 +64,7 @@ func NewComposeStatusResult(agentID, queryTaskID, installTaskID, status, project
 			InstallTaskID string `json:"install_task_id"`
 			Status        string `json:"status"`
 			Project       string `json:"project"`
-			ExitCode      *int `json:"exit_code"`
+			ExitCode      *int   `json:"exit_code"`
 		}{InstallTaskID: installTaskID, Status: status, Project: project, ExitCode: exitCode},
 	})
 	if err != nil {
