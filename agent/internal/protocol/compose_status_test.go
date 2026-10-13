@@ -37,12 +37,12 @@ func TestComposeStatusResultIsDistinctFromDeploymentExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	var payload struct {
-		Success bool `json:"success"`
-		ExitCode *int `json:"exit_code"`
+		Success        bool `json:"success"`
+		ExitCode       *int `json:"exit_code"`
 		InstallReceipt struct {
 			InstallTaskID string `json:"install_task_id"`
-			Status string `json:"status"`
-			ExitCode *int `json:"exit_code"`
+			Status        string `json:"status"`
+			ExitCode      *int   `json:"exit_code"`
 		} `json:"install_receipt"`
 	}
 	if err := json.Unmarshal(result.Payload, &payload); err != nil {
