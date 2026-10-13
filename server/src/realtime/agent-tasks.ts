@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { DatabaseConnection } from "../db/client.js";
 import type { AgentCapabilities, AgentMessage, AgentContainer } from "@navloom/contracts";
 import { AGENT_PROTOCOL_VERSION } from "@navloom/contracts";
+import { InstallTaskStore } from "../install/tasks.js";
 import { WebSocket } from "ws";
 
 type TaskResult = Extract<AgentMessage, { type: "task_result" }>;
@@ -19,6 +20,37 @@ export class AgentTasks {
   constructor(private readonly db: DatabaseConnection, private readonly timeoutMs = 15_000) {
     // A Server restart cannot prove whether a remote task executed.
     this.db.sqlite.prepare("UPDATE agent_tasks SET status = 'unknown' WHERE status = 'sent'").run();
+  }
+
+  /**
+   * Query an existing installation's durable Agent receipt without executing
+   * Compose. Only the target Agent can answer; prepared drafts are excluded.
+   * A lost query can safely be requested again with a new query task ID.
+   */
+  dispatchInstallReceiptQuery(agentId: string, installTaskId: string, socket: WebSocket): string {
+    if (socket.readyState !== WebSocket.OPEN) throw new Error("Agent connection unavailable");
+    const install = new InstallTaskStore(this.db).get(installTaskId);
+    if (!install || install.agentId !== agentId || install.status === "prepared") {
+      throw new Error("Install task not eligible for reconciliation");
+    }
+    const id = randomUUID(), now = Date.now();
+    const args = { install_task_id: installTaskId };
+    this.db.sqlite.prepare(
+      "INSERT INTO agent_tasks (id, agent_id, operation, status, arguments_json, created_at, dispatched_at, deadline_at) " +
+      "VALUES (?, ?, 'compose_status', 'sent', ?, ?, ?, ?)",
+    ).run(id, agentId, JSON.stringify(args), now, now, now + this.timeoutMs);
+    const message = {
+      protocol_version: AGENT_PROTOCOL_VERSION, message_id: randomUUID(), agent_id: agentId,
+      sent_at: new Date().toISOString(), type: "task_dispatch", task_id: id,
+      payload: { operation: "compose_status", arguments: args },
+    };
+    try {
+      socket.send(JSON.stringify(message), (error) => { if (error) this.markUnknown(id); });
+    } catch {
+      this.markUnknown(id);
+      throw new Error("Agent status query delivery failed");
+    }
+    return id;
   }
 
   /** Fixed read-only capability probe over authenticated WSS. */
@@ -190,7 +222,7 @@ export class AgentTasks {
 
   acceptResult(agentId: string, message: TaskResult): boolean {
     const row = this.db.sqlite.prepare(taskSelect + " WHERE id = ?").get(message.task_id) as TaskRow | undefined;
-    if (!row || row.agentId !== agentId || !["capability_probe", "inventory_refresh", "container_start", "container_stop", "container_restart", "container_logs"].includes(row.operation)) return false;
+    if (!row || row.agentId !== agentId || !["capability_probe", "inventory_refresh", "container_start", "container_stop", "container_restart", "container_logs", "compose_status"].includes(row.operation)) return false;
     // A revoked Agent must never report a delayed completion, even if its
     // original task remains in the audit history.
     const activeAgent = this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId);
@@ -219,12 +251,39 @@ export class AgentTasks {
         (message.payload.capabilities || message.payload.inventory_count !== undefined ||
          message.payload.inventory_chunks !== undefined)) return false;
     if (!message.payload.success && message.payload.capabilities) return false;
+    if (row.operation === "compose_status") {
+      if (message.payload.capabilities || message.payload.inventory_count !== undefined ||
+          message.payload.inventory_chunks !== undefined) return false;
+      const receipt = message.payload.install_receipt;
+      if (message.payload.success !== Boolean(receipt)) return false;
+      if (receipt) {
+        const requested = this.db.sqlite.prepare(
+          "SELECT arguments_json AS data FROM agent_tasks WHERE id = ?",
+        ).get(row.id) as { data: string } | undefined;
+        if (!requested || (JSON.parse(requested.data) as { install_task_id?: string }).install_task_id !== receipt.install_task_id ||
+            ((receipt.status === "succeeded") !== (receipt.exit_code === 0)) ||
+            ((receipt.status === "unknown" || receipt.status === "not_found") && receipt.exit_code !== null) ||
+            (receipt.status === "failed" && (receipt.exit_code === null || receipt.exit_code === 0))) return false;
+        const install = new InstallTaskStore(this.db).get(receipt.install_task_id);
+        if (!install || install.agentId !== agentId || install.status === "prepared" ||
+            (install.status === "pending" && (receipt.status === "succeeded" || receipt.status === "failed"))) return false;
+      }
+    } else if (message.payload.install_receipt) {
+      return false;
+    }
     const now = Date.now();
     this.db.sqlite.transaction(() => {
       const updated = this.db.sqlite.prepare(
         "UPDATE agent_tasks SET status = ?, finished_at = ?, result_json = ? WHERE id = ? AND status IN ('sent','unknown')",
       ).run(message.payload.success ? "succeeded" : "failed", now, JSON.stringify(message.payload), row.id);
       if (updated.changes !== 1) return;
+      if (row.operation === "compose_status" && message.payload.install_receipt) {
+        const receipt = message.payload.install_receipt;
+        new InstallTaskStore(this.db).reconcileAgentResult({
+          taskId: receipt.install_task_id, agentId, status: receipt.status,
+          exitCode: receipt.exit_code,
+        });
+      }
       if (row.operation === "inventory_refresh" && message.payload.success) {
         const pending = this.inventoryPending.get(row.id);
         if (!pending) throw new Error("Inventory buffer was lost");
