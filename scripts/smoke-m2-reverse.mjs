@@ -7,6 +7,7 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import WebSocket from "ws";
+import Database from "better-sqlite3";
 import { verifyChromiumPages } from "./m2-chromium.mjs";
 
 const temp = mkdtempSync(join(tmpdir(), "navloom-reverse-e2e-"));
@@ -266,6 +267,8 @@ try {
     const agentPort = await unusedPort(host);
     const cfg = join(temp, name + "-config.json");
     const identityFile = join(temp, name + "-identity.json");
+    const deployRoot = join(temp, name + "-deployments");
+    mkdirSync(deployRoot, { mode: 0o700 });
     writeFileSync(cfg, JSON.stringify({
       server_url: "ws://127.0.0.1:" + serverPort + "/agent",
       allow_insecure_dev: true,
@@ -275,6 +278,7 @@ try {
       endpoint_port: agentPort,
       tls_cert_file: join(temp, name + "-agent.pem"),
       tls_key_file: join(temp, name + "-agent.key"),
+      deploy_root: deployRoot,
     }));
     execFileSync(binary, ["-config", cfg, "-init-tls"], { stdio: "pipe" });
     const issued = await call("/api/v1/admin/agents/pair-tokens", "POST", {}, cookie);
@@ -284,7 +288,7 @@ try {
     assert.equal(paired.status, 0, name + " pairing failed: " + (paired.stderr ?? "").slice(-500));
     const identity = JSON.parse(readFileSync(identityFile, "utf8"));
     assert.ok(identity.server_client_certificate_pem?.includes("BEGIN CERTIFICATE"));
-    return { name, cfg, id: identity.agent_id, port: agentPort };
+    return { name, cfg, id: identity.agent_id, port: agentPort, deployRoot };
   }
 
   function startAgent(agent) {
@@ -338,6 +342,46 @@ try {
   const secondConnectionCount = establishedAgentTcp(second.port);
   const adminPage = await page(cookie);
   await until(async () => (await settings()).payload.activePages === 2);
+
+  // M3 read-only end-to-end status reconciliation over REAL mTLS WSS:
+  // inject a synthetic, durable receipt into a disposable Agent-private root.
+  // This checks the protocol/identity/database route, not Compose execution.
+  const knownInstallId = randomUUID();
+  const unknownInstallId = randomUUID();
+  {
+    const database = new Database(env.DATABASE_URL);
+    const now = Date.now();
+    const stmt = database.prepare(
+      "INSERT INTO install_tasks (id, agent_id, template_id, template_version, idempotency_key, status, created_at, updated_at) " +
+      "VALUES (?, ?, 'nginx', '1.0.0', ?, 'running', ?, ?)",
+    );
+    stmt.run(knownInstallId, first.id, randomUUID(), now, now);
+    stmt.run(unknownInstallId, second.id, randomUUID(), now, now);
+    database.close();
+  }
+  const projectForReceipt = "navloom-nginx-abcdefgh";
+  writeFileSync(join(first.deployRoot, ".deploy.lock"), "", { mode: 0o600 });
+  writeFileSync(join(first.deployRoot, ".claims.jsonl"),
+    JSON.stringify({ task_id: knownInstallId, project: projectForReceipt, digest: "a".repeat(64) }) + "\\n",
+    { mode: 0o600 });
+  writeFileSync(join(first.deployRoot, ".result-" + knownInstallId + ".json"),
+    JSON.stringify({ task_id: knownInstallId, exit_code: 0 }) + "\\n", { mode: 0o600 });
+  const statusQuery = await call("/api/v1/admin/install/tasks/" + knownInstallId + "/reconcile", "POST", {}, cookie);
+  assert.equal(statusQuery.status, 202);
+  assert.equal(statusQuery.payload.installationDispatched, false);
+  await until(async () => (await call(
+    "/api/v1/admin/install/tasks/" + knownInstallId, "GET", undefined, cookie
+  )).payload.task.status === "succeeded");
+  const restored = await call("/api/v1/admin/install/tasks/" + knownInstallId, "GET", undefined, cookie);
+  assert.equal(restored.payload.task.exitCode, 0);
+  const unknownQuery = await call("/api/v1/admin/install/tasks/" + unknownInstallId + "/reconcile", "POST", {}, cookie);
+  assert.equal(unknownQuery.status, 202);
+  await until(async () => (await call(
+    "/api/v1/admin/install/tasks/" + unknownInstallId, "GET", undefined, cookie
+  )).payload.task.status === "unknown");
+  const noSecrets = await call("/api/v1/admin/install/tasks/" + knownInstallId, "GET", undefined, cookie);
+  assert.equal(JSON.stringify(noSecrets.payload).includes("claims"), false);
+  console.log("M3 real reverse WSS receipt query PASS: isolated persisted success, unknown, same-Agent routing and no Compose activation");
   assert.equal(establishedAgentTcp(first.port), firstConnectionCount, "second page must not duplicate Agent A WSS");
   assert.equal(establishedAgentTcp(second.port), secondConnectionCount, "second page must not duplicate Agent B WSS");
   const beforePing = new Map((await devices()).map((device) => [device.id, device.lastSeenAt]));
