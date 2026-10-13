@@ -361,6 +361,7 @@ try {
   }
   const projectForReceipt = "navloom-nginx-abcdefgh";
   writeFileSync(join(first.deployRoot, ".deploy.lock"), "", { mode: 0o600 });
+  writeFileSync(join(second.deployRoot, ".deploy.lock"), "", { mode: 0o600 });
   writeFileSync(join(first.deployRoot, ".claims.jsonl"),
     JSON.stringify({ task_id: knownInstallId, project: projectForReceipt, digest: "a".repeat(64) }) + "\n",
     { mode: 0o600 });
