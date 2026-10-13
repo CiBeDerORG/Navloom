@@ -69,3 +69,55 @@ test("T-071/T-079/T-081: Compose status is exit-code based and failures do not r
   assert.throws(() => tasks.reserve({ ...input, idempotencyKey: "bad" }), /Invalid install task identity/);
   assert.equal((db.sqlite.prepare("SELECT COUNT(*) AS count FROM install_tasks").get() as { count: number }).count, 2);
 });
+
+
+test("T-081: authenticated Agent reconciliation never crosses identities or retries unknown", (t) => {
+  const db = openDatabase(":memory:");
+  migrate(db.orm, { migrationsFolder: resolve(process.cwd(), "drizzle") });
+  t.after(() => db.close());
+  const owner = randomUUID(), foreign = randomUUID();
+  db.sqlite.prepare("INSERT INTO agents (id, name) VALUES (?, ?)").run(owner, "original");
+  db.sqlite.prepare("INSERT INTO agents (id, name) VALUES (?, ?)").run(foreign, "unrelated");
+  const store = new InstallTaskStore(db);
+  const task = store.reserve({
+    agentId: owner, templateId: "nginx", templateVersion: "1.0.0",
+    idempotencyKey: randomUUID().replace(/-/g, ""),
+  });
+  assert.throws(() => store.reconcileAgentResult({
+    taskId: task.id, agentId: foreign, status: "succeeded", exitCode: 0,
+  }), /not owned/);
+  assert.equal(store.get(task.id)?.status, "pending");
+  assert.equal(store.reconcileAgentResult({
+    taskId: task.id, agentId: owner, status: "unknown", exitCode: null,
+  }).status, "unknown");
+  assert.throws(() => store.markStarted(task.id), /Invalid install state transition/,
+    "a pending task whose delivery is uncertain must never be resent");
+  assert.equal(store.reconcileAgentResult({
+    taskId: task.id, agentId: owner, status: "not_found", exitCode: null,
+  }).status, "unknown", "missing Agent receipt is not evidence of failed deployment");
+  assert.throws(() => store.reconcileAgentResult({
+    taskId: task.id, agentId: owner, status: "succeeded", exitCode: 19,
+  }), /Inconsistent/);
+  assert.equal(store.reconcileAgentResult({
+    taskId: task.id, agentId: owner, status: "succeeded", exitCode: 0,
+  }).status, "succeeded", "a late durable receipt recovers an unknown result");
+  assert.equal(store.reconcileAgentResult({
+    taskId: task.id, agentId: owner, status: "succeeded", exitCode: 0,
+  }).status, "succeeded", "exact replay is idempotent");
+  assert.throws(() => store.reconcileAgentResult({
+    taskId: task.id, agentId: owner, status: "failed", exitCode: 17,
+  }), /Conflicting late/);
+  assert.equal(store.reconcileAgentResult({
+    taskId: task.id, agentId: owner, status: "unknown", exitCode: null,
+  }).status, "succeeded", "a late unknown report must not erase durable success");
+  const prepared = store.reservePrepared({
+    agentId: owner, templateId: "nginx", templateVersion: "1.0.0",
+    idempotencyKey: randomUUID().replace(/-/g, ""),
+    parameters: { http_port: 18080 },
+    navigation: { title: "Nginx", url: "https://nas.example.test/", icon: null,
+      description: null, groupId: null, openTarget: "_blank" },
+  }, Buffer.alloc(32, 71));
+  assert.throws(() => store.reconcileAgentResult({
+    taskId: prepared.id, agentId: owner, status: "succeeded", exitCode: 0,
+  }), /Unactivated/, "prepared drafts cannot be confirmed as deployed");
+});
