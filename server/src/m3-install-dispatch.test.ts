@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { WebSocket } from "ws";
 import { AgentMessageSchema, type AgentMessage } from "@navloom/contracts";
@@ -15,7 +15,7 @@ import { hashPassword } from "./security/password.js";
 
 type Result = Extract<AgentMessage, { type: "task_result" }>;
 const catalog = loadBuiltinCatalog();
-function setup(t: Parameters<typeof test>[1] extends (ctx: infer T) => unknown ? T : never) {
+function setup(t: TestContext) {
   const db = openDatabase(":memory:");
   migrate(db.orm, { migrationsFolder: resolve(process.cwd(), "drizzle") });
   t.after(() => db.close());
