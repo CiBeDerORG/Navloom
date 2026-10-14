@@ -20,6 +20,7 @@ export class AgentTasks {
   constructor(private readonly db: DatabaseConnection, private readonly timeoutMs = 15_000) {
     // A Server restart cannot prove whether a remote task executed.
     this.db.sqlite.prepare("UPDATE agent_tasks SET status = 'unknown' WHERE status = 'sent'").run();
+    this.db.sqlite.prepare("UPDATE install_tasks SET status = 'unknown', updated_at = ? WHERE status = 'running'").run(Date.now());
   }
 
   /**
@@ -51,6 +52,62 @@ export class AgentTasks {
       throw new Error("Agent status query delivery failed");
     }
     return id;
+  }
+
+  /**
+   * One administrator action activates exactly one prepared installation.
+   * The database reservation and Agent task row commit atomically BEFORE
+   * sending any secret-bearing bytes over the paired mTLS socket. Restart,
+   * timeout and disconnection can mark the attempt unknown, NEVER resend it.
+   * The persisted agent_tasks.arguments_json contains only public identity
+   * and project metadata; never environment variables or installer secrets.
+   */
+  dispatchInstallation(agentId: string, installTaskId: string,
+    manifest: { name: string; services: Record<string, unknown>; volumes?: Record<string, unknown> },
+    socket: WebSocket): string {
+    if (socket.readyState !== WebSocket.OPEN) throw new Error("Agent connection unavailable");
+    const now = Date.now();
+    const payload = {
+      protocol_version: AGENT_PROTOCOL_VERSION, message_id: randomUUID(), agent_id: agentId,
+      sent_at: new Date(now).toISOString(), type: "task_dispatch", task_id: installTaskId,
+      payload: { operation: "compose_deploy", arguments: { install_task_id: installTaskId, manifest } },
+    };
+    const serialized = JSON.stringify(payload);
+    if (Buffer.byteLength(serialized, "utf8") > 48 * 1024) {
+      throw new Error("Installation manifest exceeds secure WSS dispatch limit");
+    }
+    this.db.sqlite.transaction(() => {
+      const task = new InstallTaskStore(this.db).get(installTaskId);
+      if (!task || task.agentId !== agentId || task.status !== "prepared") {
+        throw new Error("Installation was already activated or belongs to another Agent");
+      }
+      // Serialise same-Agent installations, including unconfirmed previous
+      // dispatches. Never write into a possibly still-running Compose project.
+      if (this.db.sqlite.prepare(
+        "SELECT id FROM install_tasks WHERE agent_id = ? AND id <> ? AND status IN ('pending','running','unknown') LIMIT 1",
+      ).get(agentId, installTaskId)) throw new Error("Target Agent has an unresolved installation");
+      if (this.db.sqlite.prepare(
+        "SELECT id FROM app_instances WHERE agent_id = ? AND compose_project = ? LIMIT 1",
+      ).get(agentId, manifest.name)) throw new Error("Compose project is already registered");
+      const updated = this.db.sqlite.prepare(
+        "UPDATE install_tasks SET status = 'running', updated_at = ? WHERE id = ? AND agent_id = ? AND status = 'prepared'",
+      ).run(now, installTaskId, agentId);
+      if (updated.changes !== 1) throw new Error("Installation activation was already claimed");
+      this.db.sqlite.prepare(
+        "INSERT INTO agent_tasks (id, agent_id, operation, status, arguments_json, created_at, dispatched_at, deadline_at) " +
+        "VALUES (?, ?, 'compose_deploy', 'sent', ?, ?, ?, ?)",
+      ).run(installTaskId, agentId, JSON.stringify({
+        install_task_id: installTaskId, compose_project: manifest.name,
+      }), now, now, now + 360_000);
+    })();
+    try {
+      socket.send(serialized, (error) => { if (error) this.markUnknown(installTaskId); });
+    } catch {
+      this.markUnknown(installTaskId);
+      // No claim can be safely retried; the caller may only reconcile.
+      throw new Error("Installation delivery uncertain; check the durable Agent receipt");
+    }
+    return installTaskId;
   }
 
   /** Fixed read-only capability probe over authenticated WSS. */
@@ -222,7 +279,7 @@ export class AgentTasks {
 
   acceptResult(agentId: string, message: TaskResult): boolean {
     const row = this.db.sqlite.prepare(taskSelect + " WHERE id = ?").get(message.task_id) as TaskRow | undefined;
-    if (!row || row.agentId !== agentId || !["capability_probe", "inventory_refresh", "container_start", "container_stop", "container_restart", "container_logs", "compose_status"].includes(row.operation)) return false;
+    if (!row || row.agentId !== agentId || !["capability_probe", "inventory_refresh", "container_start", "container_stop", "container_restart", "container_logs", "compose_status", "compose_deploy"].includes(row.operation)) return false;
     // A revoked Agent must never report a delayed completion, even if its
     // original task remains in the audit history.
     const activeAgent = this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId);
@@ -251,6 +308,31 @@ export class AgentTasks {
         (message.payload.capabilities || message.payload.inventory_count !== undefined ||
          message.payload.inventory_chunks !== undefined)) return false;
     if (!message.payload.success && message.payload.capabilities) return false;
+    if (row.operation === "compose_deploy") {
+      if (message.payload.capabilities || message.payload.inventory_count !== undefined ||
+          message.payload.inventory_chunks !== undefined) return false;
+      const receipt = message.payload.install_receipt;
+      if (message.payload.success !== Boolean(receipt)) {
+        if (message.payload.success || receipt) return false;
+      }
+      if (receipt) {
+        const recorded = this.db.sqlite.prepare(
+          "SELECT arguments_json AS data FROM agent_tasks WHERE id = ?",
+        ).get(row.id) as { data: string } | undefined;
+        const args = recorded ? JSON.parse(recorded.data) as { install_task_id: string; compose_project: string } : null;
+        if (!args || receipt.install_task_id !== row.id ||
+            receipt.install_task_id !== args.install_task_id ||
+            (receipt.project && receipt.project !== args.compose_project) ||
+            ((receipt.status === "succeeded") !== (receipt.exit_code === 0)) ||
+            ((receipt.status === "not_found" || receipt.status === "unknown") && receipt.exit_code !== null) ||
+            (receipt.status === "failed" && (receipt.exit_code === null || receipt.exit_code === 0))) return false;
+        const install = new InstallTaskStore(this.db).get(receipt.install_task_id);
+        if (!install || install.agentId !== agentId || install.status === "prepared" ||
+            ((install.status === "succeeded" || install.status === "failed") &&
+             (receipt.status === "succeeded" || receipt.status === "failed") &&
+             (install.status !== receipt.status || install.exitCode !== receipt.exit_code))) return false;
+      }
+    } else if (message.payload.install_receipt && row.operation !== "compose_status") return false;
     if (row.operation === "compose_status") {
       if (message.payload.capabilities || message.payload.inventory_count !== undefined ||
           message.payload.inventory_chunks !== undefined) return false;
@@ -280,6 +362,16 @@ export class AgentTasks {
         "UPDATE agent_tasks SET status = ?, finished_at = ?, result_json = ? WHERE id = ? AND status IN ('sent','unknown')",
       ).run(message.payload.success ? "succeeded" : "failed", now, JSON.stringify(message.payload), row.id);
       if (updated.changes !== 1) return;
+      if (row.operation === "compose_deploy") {
+        if (message.payload.install_receipt) {
+          const receipt = message.payload.install_receipt;
+          new InstallTaskStore(this.db).reconcileAgentResult({
+            taskId: receipt.install_task_id, agentId, status: receipt.status, exitCode: receipt.exit_code,
+          });
+        } else {
+          new InstallTaskStore(this.db).markUncertain(row.id);
+        }
+      }
       if (row.operation === "compose_status" && message.payload.install_receipt) {
         const receipt = message.payload.install_receipt;
         new InstallTaskStore(this.db).reconcileAgentResult({
@@ -341,6 +433,7 @@ export class AgentTasks {
 
   markAgentUnknown(agentId: string): void {
     this.db.sqlite.prepare("UPDATE agent_tasks SET status = 'unknown' WHERE agent_id = ? AND status = 'sent'").run(agentId);
+    this.db.sqlite.prepare("UPDATE install_tasks SET status = 'unknown', updated_at = ? WHERE agent_id = ? AND status = 'running'").run(Date.now(), agentId);
     for (const [id, pending] of this.inventoryPending) {
       if (pending.agentId === agentId) this.inventoryPending.delete(id);
     }
@@ -348,12 +441,17 @@ export class AgentTasks {
 
   markUnknown(taskId: string): void {
     this.db.sqlite.prepare("UPDATE agent_tasks SET status = 'unknown' WHERE id = ? AND status = 'sent'").run(taskId);
+    this.db.sqlite.prepare("UPDATE install_tasks SET status = 'unknown', updated_at = ? WHERE id = ? AND status = 'running'").run(Date.now(), taskId);
     this.inventoryPending.delete(taskId);
   }
 
   expire(): void {
     this.db.sqlite.prepare("UPDATE agent_tasks SET status = 'unknown' WHERE status = 'sent' AND deadline_at < ?")
       .run(Date.now());
+    this.db.sqlite.prepare(
+      "UPDATE install_tasks SET status = 'unknown', updated_at = ? WHERE status = 'running' AND id IN " +
+      "(SELECT id FROM agent_tasks WHERE operation = 'compose_deploy' AND status = 'unknown')",
+    ).run(Date.now());
     for (const id of this.inventoryPending.keys()) {
       const row = this.db.sqlite.prepare("SELECT status FROM agent_tasks WHERE id = ?").get(id) as { status: string } | undefined;
       if (row?.status !== "sent") this.inventoryPending.delete(id);
