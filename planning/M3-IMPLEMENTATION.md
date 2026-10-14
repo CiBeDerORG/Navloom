@@ -84,3 +84,21 @@
 - **管理员接口**：GET `/api/v1/admin/install/tasks/:id` 只返回 ID、Agent、模板版本、状态、退出码与时间；POST `/api/v1/admin/install/tasks/:id/reconcile` 仅在管理员登录且目标 Agent 已在线时请求只读对账，返回单独的 queryTaskId。首页弱口令不能查询。页面未在线导致 WSS 关闭时不会为了对账启动后台 Agent 通信。
 - **已开发测试**：Go `receipts_test.go` 验证成功/失败/重启/unknown/非法回执及不重放，`compose_status_test.go` 验证任意执行命令仍禁止；Server `m3-reconcile.test.ts` 验证 Agent A/B 隔离、query/install ID 分离、终态重复回报、prepared 拒绝、管理员无秘密详情。真实双 Go Agent mTLS WSS 集成脚本补充受控 SQLite + 私有回执**模拟夹具**，查实成功和没有回执的 unknown。模拟回执只证明协议和数据库对账；真 Docker Compose 已由单独的隔离 Runner 执行模块验收。
 - **尚缺关键闭环**：明确管理员激活并派发真正的 `compose_deploy`、密钥安全传输和 Agent 能力校验、执行开始/结果确认协议、日志流式回传、Server/Agent 恢复后自动但仍页面驱动的状态对账、应用实例与导航卡片原子创建（T-074/T-076～T-088）。**当前无远程安装或设备 Docker 副作用入口**。不得勾选整个 M3 完成。CiBeDerORG/deploy 此轮未修改；如需改 deploy 仍必须先新建分支。
+
+
+## 2026-10-14 第五轮：双重显式授权的单次远程 Compose 派发（T-074/T-076/T-079 代码与集成测试）
+
+**安全启用方式（默认全部关闭）**：
+1. Server 私有运行环境必须明确配置 `NAVLOOM_ENABLE_REMOTE_INSTALL=1`，仅管理员认证与有效 CSRF 可调用 `POST /api/v1/admin/install/tasks/:id/activate`，请求必须包含 `{"confirmation":"DEPLOY"}`。默认未启用直接返回 **503 REMOTE_INSTALL_DISABLED**，不能自动启用，绝不允许首页弱口令调用。
+2. 目标 Agent 还必须在私有配置里明确设置 `enable_compose_deploy: true`（或 `NAVLOOM_AGENT_ENABLE_COMPOSE_DEPLOY=true`），并配置专用、可信、0700 的 `deploy_root`；未配置即拒绝执行，不能以只读历史查询授权替代。**不应在未明确许可的真实 NAS 或生产 Docker 主机上启用**。
+3. 管理员先选择内置模板、目标在线 Agent、填写参数与导航草稿并加密保存 `prepared`；再从后台已保存草稿列表点击单独的明确确认按钮，浏览器二次确认后才请求激活。激活时 Server 重新校验原模板精确版本、解密保存在 SQLite 的敏感参数、运行完整实时 Agent/Docker/Compose/库存/端口/导航预检。未达标拒绝且不修改草稿状态。
+4. Server 的 `AgentTasks.dispatchInstallation` 在单个 SQLite 事务中将 `prepared` CAS 更新为 `running` 并写入唯一、同 ID 的 `agent_tasks` `compose_deploy` 派发记录，**先持久化、后发 mTLS WSS**。该记录只含任务 ID/Compose project 等非敏感字段，绝不落库明文环境变量或把密文/私密路径放到公共 API。Server 重启、发送异常、Agent 断线或超时把执行中的安装标成 `unknown`；不能返回 `prepared`、不能无条件重新发送，更不能在重连时偷偷执行。同 Agent 有待确认安装会阻止下一次部署，受管 Compose project 不得被其他任务抢占。
+5. `compose_deploy` 协议信封携带严格关联的同一 `install_task_id` 与白名单 JSON manifest；Go 解码先校验完整 v2 WSS 任务、精确 ID、受限 Manifest，再在独立协程中执行已有的受限本机 Compose Executor，保持 WSS Ping/Pong 不被长任务阻塞。执行结束以 0600 且 `fsync` 的持久回执恢复退出码；不可靠时报告 `unknown`，绝不编造成功。输出不会直接写入普通任务日志；真实输出流的安全分段/脱敏回传仍属 T-078。
+6. 管理界面显示已保存草稿，独立的“明确确认并执行一次安装”按钮、最近激活任务状态、Compose 退出码、手动刷新和**只读**回执查询；任务查询不重复执行。成功仅代表 Docker Compose `up -d` 退出码 0，不检查 HTTP/healthcheck，也不自动声称服务可被公网访问。
+
+**自动化证据及边界**：
+- `server/src/m3-install-dispatch.test.ts`：跨 Agent 伪造拒绝、单次 CAS、数据库无秘密、并发冲突、成功/失败退出码、终态结果重放、进程重启变 unknown、默认功能关闭和首页 Cookie 拒绝。Go `agent/internal/protocol/compose_deploy_test.go`：Task ID 绑定、拒绝 shell/privileged/host socket/公网端口，Agent config 单独测试 opt-in 与路径规范。
+- `scripts/smoke-m2-reverse.mjs`：在 GitHub-hosted 临时 Runner 中使用**真实两台 Go Agent 进程、Node Server、SQLite 与 mTLS WSS**做管理员显式激活联调。Agent A 的 `docker compose up -d` 在专用临时 PATH 中由无副作用测试 shim 记录一次，正常 Docker 探测仍委托真实 Docker；不拉取模板的公网镜像，也不影响真实 Docker fixture。检验真实 WSS 派发、Agent 双重开关、持久退出码 0、二次 HTTP 激活拒绝、Agent B 不执行、原 M2 真 Docker/Compose 与零页面 TCP 包级回归。**实际 Docker Compose CLI `up -d` 的执行器另由 `TestDisposableComposeV2RealDocker` 在一次性 Docker fixture 中独立验证**；两项测试合并仍不能冒称在真实 NAS 上完成正式验收。
+- 代码与测试证据：<https://github.com/CiBeDerORG/Navloom/actions/runs/38563864095>，该运行 4/4 PASS，日志包含 `M3 real mTLS WSS one-shot dispatch PASS`、`M3 disposable Go Compose v2 executor PASS` 和 M2 原始零通信抓包 PASS。最新提交后必须再次确认完整 CI 通过。
+
+**未完成/不可提前签核**：T-078 安装日志增量脱敏及 Server 存储；T-080/T-081 任务运行时回执补报与 Agent/Server 断线恢复全面压力测试；T-083～T-085 成功后唯一 AppInstance 与事务化唯一导航卡片；T-086～T-088 全功能 UI/失败残留提示、并发与真实授权多 NAS E2E；密码/密钥备份与轮换、安全审计。**M3 不因本轮 CI 通过而被视为 29/29 已正式验收。CiBeDerORG/deploy 未修改；若未来需修改，必须先新建独立分支，不直接修改其 main。**
