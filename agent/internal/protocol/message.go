@@ -9,6 +9,8 @@ import (
 	"io"
 	"regexp"
 	"time"
+
+	"github.com/CiBeDerORG/Navloom/agent/internal/deploy"
 )
 
 const Version = 2
@@ -131,6 +133,18 @@ func DecodeTaskDispatch(data []byte, expectedAgentID string) (Message, error) {
 		var args struct{}
 		if err := strictJSON(payload.Arguments, &args); err != nil {
 			return msg, errors.New("read-only task takes no arguments")
+		}
+	case "compose_deploy":
+		var args struct {
+			InstallTaskID string          `json:"install_task_id"`
+			Manifest      json.RawMessage `json:"manifest"`
+		}
+		if err := strictJSON(payload.Arguments, &args); err != nil ||
+			args.InstallTaskID != msg.TaskID || !uuidPattern.MatchString(args.InstallTaskID) {
+			return msg, errors.New("invalid installation dispatch identity")
+		}
+		if _, err := deploy.StrictManifest(args.Manifest); err != nil {
+			return msg, errors.New("unsafe installation manifest")
 		}
 	case "compose_status":
 		var args struct {
