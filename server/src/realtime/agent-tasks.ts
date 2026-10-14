@@ -353,7 +353,7 @@ export class AgentTasks {
             (receipt.status === "succeeded" || receipt.status === "failed") &&
             (install.status !== receipt.status || install.exitCode !== receipt.exit_code)) return false;
       }
-    } else if (message.payload.install_receipt) {
+    } else if (message.payload.install_receipt && row.operation !== "compose_deploy") {
       return false;
     }
     const now = Date.now();
