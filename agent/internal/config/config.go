@@ -22,6 +22,7 @@ type Config struct {
 	TLSCertFile      string `json:"tls_cert_file"`
 	TLSKeyFile       string `json:"tls_key_file"`
 	DeployRoot       string `json:"deploy_root"`
+	EnableComposeDeploy bool `json:"enable_compose_deploy"`
 	AllowInsecureDev bool   `json:"allow_insecure_dev"`
 }
 
@@ -54,6 +55,11 @@ func Load(path string) (Config, error) {
 	if value := os.Getenv("NAVLOOM_AGENT_DEPLOY_ROOT"); value != "" {
 		cfg.DeployRoot = value
 	}
+	if value := os.Getenv("NAVLOOM_AGENT_ENABLE_COMPOSE_DEPLOY"); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil { return cfg, errors.New("NAVLOOM_AGENT_ENABLE_COMPOSE_DEPLOY must be boolean") }
+		cfg.EnableComposeDeploy = enabled
+	}
 	if value := os.Getenv("NAVLOOM_AGENT_TOKEN_FILE"); value != "" {
 		cfg.TokenFile = value
 	}
@@ -72,6 +78,9 @@ func Load(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.EnableComposeDeploy && c.DeployRoot == "" {
+		return errors.New("Compose deployment requires an explicitly configured private root")
+	}
 	if c.DeployRoot != "" && (!filepath.IsAbs(c.DeployRoot) || filepath.Clean(c.DeployRoot) != c.DeployRoot || c.DeployRoot == "/") {
 		return errors.New("Agent deployment root must be an absolute, canonical private directory")
 	}
