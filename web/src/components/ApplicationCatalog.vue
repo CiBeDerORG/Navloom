@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import {
-  getApplicationCatalog, getApplicationTemplate, previewApplicationTemplate, preflightApplicationInstall, getAdminNavigation, savePreparedInstallation, getPreparedInstallations,
+  getApplicationCatalog, getApplicationTemplate, previewApplicationTemplate, preflightApplicationInstall, getAdminNavigation, savePreparedInstallation, getPreparedInstallations, activatePreparedInstallation, getInstallationTask, reconcileInstallationTask,
   type AgentDevice, type CatalogPreview, type CatalogTemplateDetail, type CatalogTemplateSummary,
-  type NavigationDraft, type NavigationGroup, type InstallationPreflight, type PreparedInstallTask,
+  type NavigationDraft, type NavigationGroup, type InstallationPreflight, type PreparedInstallTask, type InstallTaskDetail,
 } from "../lib/api";
 
 const props = defineProps<{ agents: AgentDevice[] }>();
@@ -17,6 +17,8 @@ const installPreflight = ref<InstallationPreflight | null>(null);
 const navigation = ref<NavigationDraft>({ title: "", url: "", icon: null, description: null, groupId: null, openTarget: "_blank" });
 const groups = ref<NavigationGroup[]>([]);
 const preparedList = ref<PreparedInstallTask[]>([]);
+const activeTask = ref<InstallTaskDetail | null>(null);
+const activeNotice = ref("");
 const loading = ref(true);
 const busy = ref(false);
 const error = ref("");
@@ -153,6 +155,51 @@ async function savePreparedDraft() {
     preparedList.value = (await getPreparedInstallations()).tasks;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "无法安全保存安装草稿";
+  } finally {
+    busy.value = false;
+  }
+}
+
+
+async function activatePrepared(task: PreparedInstallTask) {
+  if (busy.value) return;
+  // Explicit human confirmation, separate from template preview or safe save.
+  if (!window.confirm("确认在 " + task.agentName + " 上执行一次 Docker Compose 安装？该操作可能启动容器。任务不会自动重试；请先确认目标设备已授权并启用 Server/Agent 双端部署开关。")) return;
+  busy.value = true;
+  error.value = "";
+  activeNotice.value = "";
+  try {
+    const response = await activatePreparedInstallation(task.id);
+    activeNotice.value = response.message;
+    activeTask.value = (await getInstallationTask(task.id)).task;
+    preparedList.value = (await getPreparedInstallations()).tasks;
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "部署激活被拒绝，请检查预检、双端配置和 Agent 连接";
+  } finally {
+    busy.value = false;
+  }
+}
+async function refreshInstallStatus() {
+  if (!activeTask.value || busy.value) return;
+  busy.value = true;
+  error.value = "";
+  try {
+    activeTask.value = (await getInstallationTask(activeTask.value.id)).task;
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "无法读取安装任务状态";
+  } finally {
+    busy.value = false;
+  }
+}
+async function reconcileInstallStatus() {
+  if (!activeTask.value || busy.value) return;
+  busy.value = true;
+  error.value = "";
+  try {
+    await reconcileInstallationTask(activeTask.value.id);
+    activeNotice.value = "已发送只读回执查询；请点击“刷新结果”查看持久化状态，不会重新执行 Compose。";
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "回执查询失败";
   } finally {
     busy.value = false;
   }
@@ -297,7 +344,7 @@ async function savePreparedDraft() {
         </button>
         <p v-if="preparedNotice" role="status" class="mt-3 text-emerald-300">{{ preparedNotice }}</p>
         <p v-if="preparedTaskId" class="mt-1 break-all font-mono text-xs text-slate-400">任务 ID：{{ preparedTaskId }}</p>
-        <p class="mt-3 text-amber-300">当前预览不会部署；只有管理员明确保存后才创建加密草稿，状态仍为 prepared，绝不会自动启动 Docker。正式执行功能将在 M3 后续阶段开放。</p>
+        <p class="mt-3 text-amber-300">预览与加密保存都不会启动 Docker。管理员如需真正执行，必须在下方草稿列表再次确认；Server 和目标 Agent 的部署开关默认均关闭。</p>
       </div>
     </section>
     <section class="mt-6 rounded-xl border border-white/10 p-4" aria-labelledby="prepared-install-list">
@@ -305,15 +352,35 @@ async function savePreparedDraft() {
         <h3 id="prepared-install-list" class="text-base font-semibold">已安全保存的安装草稿</h3>
         <span class="text-xs text-amber-300">仅准备，未部署</span>
       </div>
-      <p class="mt-2 text-xs text-slate-400">只显示非敏感元数据。密码及加密内容不返回浏览器。实际 Compose 执行器尚未启用。</p>
+      <p class="mt-2 text-xs text-slate-400">只显示非敏感元数据。密码及加密内容不返回浏览器。执行必须逐条确认，双端默认禁止远程部署。</p>
       <p v-if="preparedList.length === 0" class="mt-3 text-sm text-slate-400">暂无已保存草稿。</p>
       <ul v-else class="mt-4 space-y-2" aria-label="安装任务草稿">
         <li v-for="task in preparedList" :key="task.id" class="rounded-lg border border-white/10 p-3 text-sm">
           <span class="font-medium">{{ task.navigationTitle }} · {{ task.templateId }}</span>
           <span class="ml-2 text-xs text-amber-300">prepared（未执行）</span>
           <span class="mt-1 block text-xs text-slate-400">{{ task.agentName }} · {{ new Date(task.createdAt).toLocaleString() }}</span>
+          <button type="button" :disabled="busy" @click="activatePrepared(task)"
+            class="mt-3 rounded-lg border border-amber-400/40 px-3 py-2 text-xs font-medium text-amber-200 disabled:opacity-50">
+            明确确认并执行一次安装
+          </button>
         </li>
       </ul>
+    </section>
+    <section v-if="activeTask" class="mt-5 rounded-xl border border-white/15 p-4" aria-labelledby="active-install-task">
+      <h3 id="active-install-task" class="font-semibold">最近一次明确激活的安装任务</h3>
+      <p class="mt-2 break-all font-mono text-xs text-slate-400">{{ activeTask.id }}</p>
+      <p class="mt-2 text-sm">状态：<strong>{{ activeTask.status }}</strong>
+        <span v-if="activeTask.exitCode !== null"> · Compose 退出码 {{ activeTask.exitCode }}</span>
+      </p>
+      <p v-if="activeNotice" role="status" class="mt-2 text-xs text-slate-300">{{ activeNotice }}</p>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button type="button" :disabled="busy" @click="refreshInstallStatus"
+          class="rounded-lg border border-white/25 px-3 py-2 text-xs disabled:opacity-50">刷新结果</button>
+        <button v-if="activeTask.status === 'unknown' || activeTask.status === 'running'" type="button"
+          :disabled="busy" @click="reconcileInstallStatus"
+          class="rounded-lg border border-white/25 px-3 py-2 text-xs disabled:opacity-50">只读查询 Agent 回执（不会重试安装）</button>
+      </div>
+      <p class="mt-2 text-xs text-amber-300">发送成功不代表部署成功；只有经 Agent 持久回执确认的 Compose 退出码 0 才视为部署成功。</p>
     </section>
   </section>
 </template>
