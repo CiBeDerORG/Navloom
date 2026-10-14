@@ -64,16 +64,28 @@ func TestLoadRejectsUnknownJSONField(t *testing.T) {
 
 func TestRemoteComposeRequiresExplicitPrivateRootAndOptIn(t *testing.T) {
 	cfg := Config{ServerURL: "wss://example.com/agent", AgentName: "nas"}
-	if err := cfg.Validate(); err != nil { t.Fatal(err) }
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
 	cfg.EnableComposeDeploy = true
-	if err := cfg.Validate(); err == nil { t.Fatal("remote deployment enabled without private root") }
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("remote deployment enabled without private root")
+	}
 	cfg.DeployRoot = "/var/lib/navloom/deployments"
-	if err := cfg.Validate(); err != nil { t.Fatal(err) }
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
 	cfg.DeployRoot = "../escape"
-	if err := cfg.Validate(); err == nil { t.Fatal("relative deployment root accepted") }
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("relative deployment root accepted")
+	}
 	cfg.DeployRoot = "/"
-	if err := cfg.Validate(); err == nil { t.Fatal("root filesystem accepted") }
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("root filesystem accepted")
+	}
 	cfg.DeployRoot = "/var/lib/navloom/deployments"
 	t.Setenv("NAVLOOM_AGENT_ENABLE_COMPOSE_DEPLOY", "invalid")
-	if _, err := Load(""); err == nil { t.Fatal("invalid remote execution opt-in accepted") }
+	if _, err := Load(""); err == nil {
+		t.Fatal("invalid remote execution opt-in accepted")
+	}
 }
