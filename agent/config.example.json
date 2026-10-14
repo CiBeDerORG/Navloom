@@ -7,5 +7,6 @@
   "tls_cert_file": "/var/lib/navloom/agent.pem",
   "tls_key_file": "/var/lib/navloom/agent.key",
   "deploy_root": "",
+  "enable_compose_deploy": false,
   "allow_insecure_dev": false
 }
