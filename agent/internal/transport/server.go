@@ -47,7 +47,7 @@ func RunPassive(ctx context.Context, cfg config.Config, identity pairing.Identit
 	}
 	defer listener.Close()
 	server := &http.Server{
-		Handler:           passiveHandlerWithDeploymentRoot(ctx, identity, version, log, cfg.DeployRoot, journal),
+		Handler:           passiveHandlerWithDeploymentPolicy(ctx, identity, version, log, cfg.DeployRoot, cfg.EnableComposeDeploy, journal),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -128,6 +128,10 @@ func passiveHandler(ctx context.Context, identity pairing.Identity, version stri
 }
 
 func passiveHandlerWithDeploymentRoot(ctx context.Context, identity pairing.Identity, version string, log *slog.Logger, root string, journals ...*operationJournal) http.Handler {
+	return passiveHandlerWithDeploymentPolicy(ctx, identity, version, log, root, false, journals...)
+}
+
+func passiveHandlerWithDeploymentPolicy(ctx context.Context, identity pairing.Identity, version string, log *slog.Logger, root string, enabled bool, journals ...*operationJournal) http.Handler {
 	var journal *operationJournal
 	if len(journals) > 0 {
 		journal = journals[0]
@@ -219,6 +223,9 @@ func passiveHandlerWithDeploymentRoot(ctx context.Context, identity pairing.Iden
 		// Prevent replay inside one authenticated WSS session, including when a
 		// fresh message_id is paired with a task_id that already ran. The ledger
 		// is bounded; future mutating operations also require durable dedupe.
+		// Only one concurrent Compose subprocess per authenticated session.
+		// Other WSS reads (including control Ping/Pong) remain responsive.
+		deployBusy := make(chan struct{}, 1)
 		seenTasks := make(map[string]struct{})
 		seenMessages := make(map[string]struct{})
 		for {
@@ -250,6 +257,32 @@ func passiveHandlerWithDeploymentRoot(ctx context.Context, identity pairing.Iden
 			seenTasks[task.TaskID] = struct{}{}
 			seenMessages[task.MessageID] = struct{}{}
 			switch protocol.TaskOperation(task) {
+			case "compose_deploy":
+				if !enabled || root == "" {
+					result, err := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "remote Compose execution disabled")
+					if err != nil || send(result) != nil { return }
+					continue
+				}
+				select {
+				case deployBusy <- struct{}{}:
+					manifest := protocol.TaskComposeManifest(task)
+					go func(taskID string, data []byte) {
+						defer func() { <-deployBusy }()
+						_, _ = (deploy.Executor{Root: root}).Execute(ctx, taskID, data)
+						receipt, err := (deploy.Executor{Root: root}).Reconcile(taskID)
+						if err != nil {
+							failure, failed := protocol.NewTaskFailure(identity.AgentID, taskID, "durable Compose result unavailable")
+							if failed == nil { _ = send(failure) }
+							return
+						}
+						out, err := protocol.NewComposeStatusResult(identity.AgentID, taskID,
+							receipt.TaskID, receipt.Status, receipt.Project, receipt.ExitCode)
+						if err == nil { _ = send(out) }
+					}(task.TaskID, manifest)
+				default:
+					result, err := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "Agent Compose executor busy")
+					if err != nil || send(result) != nil { return }
+				}
 			case "compose_status":
 				if root == "" {
 					result, err := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "deployment receipt directory not configured")
