@@ -492,6 +492,42 @@ try {
       "saving M3 prepared intent MUST NOT affect Docker");
     console.log("M3 real Agent + SQLite prepared-install PASS: online preflight, encrypted staged task, idempotency and zero Docker side effects");
 
+    // One administrator opt-in activation over the ACTUAL Server→Agent mTLS
+    // WSS, using only the isolated Agent's Compose-up fixture shim. No public
+    // image pulls or real NAS mutations; real Docker CLI is tested separately.
+    const executeUrl = "/api/v1/admin/install/tasks/" + saved.payload.taskId + "/activate";
+    const unauthorizedActivation = await fetch(base + executeUrl, {
+      method: "POST", headers: { cookie: homeCookie, "x-navloom-csrf": "1", "content-type": "application/json" },
+      body: JSON.stringify({ confirmation: "DEPLOY" }),
+    });
+    assert.equal(unauthorizedActivation.status, 401);
+    const noConfirmation = await fetch(base + executeUrl, {
+      method: "POST", headers: { cookie, "x-navloom-csrf": "1", "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    assert.equal(noConfirmation.status, 400);
+    const activated = await call(executeUrl, "POST", { confirmation: "DEPLOY" }, cookie);
+    assert.equal(activated.payload.taskId, saved.payload.taskId);
+    assert.equal(activated.payload.dispatched, true);
+    await until(async () => (await call(
+      "/api/v1/admin/install/tasks/" + saved.payload.taskId, "GET", undefined, cookie
+    )).payload.task.status === "succeeded", 20_000);
+    const completedInstall = await call(
+      "/api/v1/admin/install/tasks/" + saved.payload.taskId, "GET", undefined, cookie);
+    assert.equal(completedInstall.payload.task.exitCode, 0);
+    assert.equal(readFileSync(deployInvocation, "utf8").trim().split("\n").length, 1,
+      "one explicit activation must call the isolated Compose executable exactly once");
+    const repeatedActivation = await fetch(base + executeUrl, {
+      method: "POST", headers: { cookie, "x-navloom-csrf": "1", "content-type": "application/json" },
+      body: JSON.stringify({ confirmation: "DEPLOY" }),
+    });
+    assert.equal(repeatedActivation.status, 409);
+    assert.equal(readFileSync(deployInvocation, "utf8").trim().split("\n").length, 1,
+      "repeat HTTP activation must never execute Docker Compose again");
+    assert.equal(docker(["inspect", "-f", "{{.State.Status}}", fixture.running]), "running");
+    console.log("M3 real mTLS WSS one-shot dispatch PASS: explicit admin opt-in, Agent policy, durable exit 0, duplicate refused, no Docker fixture mutations");
+
+
     const firstInventory = await containersFor(first.id);
     const aRunning = firstInventory.find(row => row.containerId === fixture.running);
     const aStopped = firstInventory.find(row => row.containerId === fixture.stopped);
