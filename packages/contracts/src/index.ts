@@ -39,8 +39,19 @@ export const AgentCommandSchema = z.discriminatedUnion("operation", [
   z.object({
     operation: z.literal("compose_deploy"),
     arguments: z.object({
-      template_id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
-      compose_project: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+      install_task_id: z.string().uuid(),
+      manifest: z.object({
+        name: z.string().regex(/^navloom-[a-z][a-z0-9-]{1,47}-[a-z0-9]{8,24}$/).max(63),
+        services: z.record(z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/),
+          z.object({
+            image: z.string().min(3).max(300),
+            restart: z.literal("unless-stopped"),
+            ports: z.array(z.string().max(64)).max(20).optional(),
+            environment: z.record(z.string(), z.string().max(512)).optional(),
+            volumes: z.array(z.string().max(300)).max(15).optional(),
+          }).strict()).refine(v => Object.keys(v).length >= 1 && Object.keys(v).length <= 12),
+        volumes: z.record(z.string(), z.object({}).strict()).optional(),
+      }).strict(),
     }).strict(),
   }).strict(),
 ]);
