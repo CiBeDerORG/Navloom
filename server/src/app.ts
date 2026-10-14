@@ -41,7 +41,7 @@ export function buildApp(
     const isExpected = error instanceof ApiFailure;
     if (!isExpected) request.log.error({ err: error }, "request failed");
     const rawStatus = error !== null && typeof error === "object" && "statusCode" in error ? error.statusCode : undefined;
-    const statusCode = typeof rawStatus === "number" && rawStatus >= 400 && rawStatus < 500 ? rawStatus : 500;
+    const statusCode = typeof rawStatus === "number" && rawStatus >= 400 && (rawStatus < 500 || (isExpected && rawStatus < 600)) ? rawStatus : 500;
     return reply.status(statusCode).send({
       error: {
         code: isExpected ? error.code : statusCode === 500 ? "INTERNAL_ERROR" : "BAD_REQUEST",
