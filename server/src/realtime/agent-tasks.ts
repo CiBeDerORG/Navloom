@@ -369,7 +369,8 @@ export class AgentTasks {
             taskId: receipt.install_task_id, agentId, status: receipt.status, exitCode: receipt.exit_code,
           });
         } else {
-          new InstallTaskStore(this.db).markUncertain(row.id);
+          const store = new InstallTaskStore(this.db);
+          if (store.get(row.id)?.status === "running") store.markUncertain(row.id);
         }
       }
       if (row.operation === "compose_status" && message.payload.install_receipt) {
