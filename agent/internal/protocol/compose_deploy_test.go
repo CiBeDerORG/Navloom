@@ -12,9 +12,9 @@ func deploymentPayload(id string) map[string]any {
 			"name": "navloom-nginx-abcdef123456",
 			"services": map[string]any{
 				"web": map[string]any{
-					"image": "nginx:1.27.5-alpine",
+					"image":   "nginx:1.27.5-alpine",
 					"restart": "unless-stopped",
-					"ports": []string{"127.0.0.1:18080:80/tcp"},
+					"ports":   []string{"127.0.0.1:18080:80/tcp"},
 				},
 			},
 		},
@@ -39,9 +39,15 @@ func TestComposeDeployCommandRequiresExactTaskIDAndTrustedManifest(t *testing.T)
 		func(x map[string]any) { x["shell"] = "id" },
 		func(x map[string]any) { x["manifest"].(map[string]any)["privileged"] = true },
 		func(x map[string]any) { x["manifest"].(map[string]any)["name"] = "../unsafe" },
-		func(x map[string]any) { x["manifest"].(map[string]any)["services"].(map[string]any)["web"].(map[string]any)["command"] = "sh -c id" },
-		func(x map[string]any) { x["manifest"].(map[string]any)["services"].(map[string]any)["web"].(map[string]any)["ports"] = []string{"0.0.0.0:18080:80/tcp"} },
-		func(x map[string]any) { x["manifest"].(map[string]any)["services"].(map[string]any)["web"].(map[string]any)["volumes"] = []string{"/var/run/docker.sock:/var/run/docker.sock"} },
+		func(x map[string]any) {
+			x["manifest"].(map[string]any)["services"].(map[string]any)["web"].(map[string]any)["command"] = "sh -c id"
+		},
+		func(x map[string]any) {
+			x["manifest"].(map[string]any)["services"].(map[string]any)["web"].(map[string]any)["ports"] = []string{"0.0.0.0:18080:80/tcp"}
+		},
+		func(x map[string]any) {
+			x["manifest"].(map[string]any)["services"].(map[string]any)["web"].(map[string]any)["volumes"] = []string{"/var/run/docker.sock:/var/run/docker.sock"}
+		},
 	} {
 		item := deploymentPayload(validTask)
 		mutation(item)
