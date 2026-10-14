@@ -239,6 +239,7 @@ try {
     NAVLOOM_HOME_PASSPHRASE: homePassphrase,
     // Ephemeral 256-bit encryption key for isolated prepared-install acceptance only.
     NAVLOOM_INSTALL_KEY: randomBytes(32).toString("base64url"),
+    NAVLOOM_ENABLE_REMOTE_INSTALL: process.env.NAVLOOM_CI_DOCKER_FIXTURES === "1" ? "1" : "0",
   };
   execFileSync("npm", ["run", "db:migrate"], { env, stdio: "pipe" });
   execFileSync("npm", ["run", "admin:init", "-w", "@navloom/server"], { env, stdio: "pipe" });
@@ -279,6 +280,7 @@ try {
       tls_cert_file: join(temp, name + "-agent.pem"),
       tls_key_file: join(temp, name + "-agent.key"),
       deploy_root: deployRoot,
+      enable_compose_deploy: name === "nas-a" && process.env.NAVLOOM_CI_DOCKER_FIXTURES === "1",
     }));
     execFileSync(binary, ["-config", cfg, "-init-tls"], { stdio: "pipe" });
     const issued = await call("/api/v1/admin/agents/pair-tokens", "POST", {}, cookie);
@@ -292,12 +294,34 @@ try {
   }
 
   function startAgent(agent) {
-    const child = spawn(binary, ["-config", agent.cfg], { stdio: "ignore" });
+    const child = spawn(binary, ["-config", agent.cfg], {
+      stdio: "ignore",
+      env: agent.name === "nas-a" && isolatedDeployPath ? { ...process.env, PATH: isolatedDeployPath } : process.env,
+    });
     children.push(child);
     return child;
   }
 
   const fixture = provisionDisposableDockerFixtures();
+  let isolatedDeployPath = "";
+  const deployInvocation = join(temp, "m3-one-shot-dispatches");
+  if (fixture && process.env.GITHUB_ACTIONS === "true") {
+    // Intercept ONLY compose up -d for the paired Agent. All Docker probes,
+    // container inventory and real Docker fixture tests still reach Docker.
+    // This validates the whole mTLS dispatch/protocol path without pulling
+    // a public image or changing any user/production Docker environment.
+    const originalDocker = execFileSync("which", ["docker"], { encoding: "utf8" }).trim();
+    const shimDir = join(temp, "m3-optin-docker");
+    mkdirSync(shimDir, { mode: 0o700 });
+    const dockerShim = join(shimDir, "docker");
+    writeFileSync(dockerShim, "#!/bin/sh\\n" +
+      'if [ "$1" = "compose" ]; then\\n' +
+      '  case "$*" in *" up -d") printf "one-shot\\\\n" >> "' + deployInvocation + '"; exit 0;; esac\\n' +
+      "fi\\n" +
+      'exec "' + originalDocker + '" "$@"\\n', { mode: 0o700 });
+    isolatedDeployPath = shimDir + ":" + process.env.PATH;
+  }
+
   if (fixture && process.env.GITHUB_ACTIONS === "true") {
     // Genuine Go executor + Compose CLI, limited to the disposable image just
     // built on this same hosted runner; never connected to a user's NAS.
