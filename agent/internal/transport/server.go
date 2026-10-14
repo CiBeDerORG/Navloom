@@ -260,7 +260,9 @@ func passiveHandlerWithDeploymentPolicy(ctx context.Context, identity pairing.Id
 			case "compose_deploy":
 				if !enabled || root == "" {
 					result, err := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "remote Compose execution disabled")
-					if err != nil || send(result) != nil { return }
+					if err != nil || send(result) != nil {
+						return
+					}
 					continue
 				}
 				select {
@@ -272,16 +274,22 @@ func passiveHandlerWithDeploymentPolicy(ctx context.Context, identity pairing.Id
 						receipt, err := (deploy.Executor{Root: root}).Reconcile(taskID)
 						if err != nil {
 							failure, failed := protocol.NewTaskFailure(identity.AgentID, taskID, "durable Compose result unavailable")
-							if failed == nil { _ = send(failure) }
+							if failed == nil {
+								_ = send(failure)
+							}
 							return
 						}
 						out, err := protocol.NewComposeStatusResult(identity.AgentID, taskID,
 							receipt.TaskID, receipt.Status, receipt.Project, receipt.ExitCode)
-						if err == nil { _ = send(out) }
+						if err == nil {
+							_ = send(out)
+						}
 					}(task.TaskID, manifest)
 				default:
 					result, err := protocol.NewTaskFailure(identity.AgentID, task.TaskID, "Agent Compose executor busy")
-					if err != nil || send(result) != nil { return }
+					if err != nil || send(result) != nil {
+						return
+					}
 				}
 			case "compose_status":
 				if root == "" {
