@@ -19,6 +19,20 @@ func TaskInstallID(task Message) string {
 	return payload.Arguments.InstallTaskID
 }
 
+// TaskComposeManifest is used only after strict DecodeTaskDispatch validation.
+// It returns an independent copy of the allowlisted Compose JSON.
+func TaskComposeManifest(task Message) []byte {
+	var payload struct {
+		Arguments struct {
+			Manifest json.RawMessage `json:"manifest"`
+		} `json:"arguments"`
+	}
+	if json.Unmarshal(task.Payload, &payload) != nil {
+		return nil
+	}
+	return append([]byte(nil), payload.Arguments.Manifest...)
+}
+
 // NewComposeStatusResult reports a side-effect-free durable receipt.
 // "success" means the read-only query succeeded; it does NOT mean the
 // installation succeeded. Install status and exit_code are independent.
