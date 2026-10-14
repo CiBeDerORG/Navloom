@@ -57,6 +57,34 @@ export class AgentHub {
     };
   }
 
+  /**
+   * A prepared install can be activated ONLY on an existing, authenticated
+   * Agent connection while a logged-in page remains online. Never initiate
+   * a page-independent socket or retry after a delivery ambiguity.
+   */
+  requestInstallation(agentId: string, taskId: string,
+    manifest: { name: string; services: Record<string, unknown>; volumes?: Record<string, unknown> }): string {
+    const session = this.sessions.get(agentId);
+    if (!this.inventorySync || !session || !session.helloReceived || !this.isOnline(agentId)) {
+      throw new ApiFailure(409, "AGENT_OFFLINE", "必须有已登录页面及已认证的在线 Agent 才能执行安装");
+    }
+    if (!this.db.sqlite.prepare("SELECT id FROM agents WHERE id = ? AND revoked_at IS NULL").get(agentId)) {
+      throw new ApiFailure(404, "AGENT_NOT_FOUND", "Agent 不存在或已撤销");
+    }
+    try {
+      return this.tasks.dispatchInstallation(agentId, taskId, manifest, session.socket);
+    } catch (error) {
+      if (error instanceof Error && (error.message.includes("already") ||
+          error.message.includes("unresolved"))) {
+        throw new ApiFailure(409, "INSTALL_ALREADY_CLAIMED", "安装任务已经领取或目标 Agent 有待确认的安装");
+      }
+      if (error instanceof Error && error.message.includes("limit")) {
+        throw new ApiFailure(400, "INSTALL_MANIFEST_TOO_LARGE", "可信 Compose 配置超过安全传输大小限制");
+      }
+      throw error;
+    }
+  }
+
   /** Explicit administrator-initiated read-only reconciliation over an existing WSS. */
   requestInstallReceiptQuery(agentId: string, installTaskId: string): string {
     const session = this.sessions.get(agentId);
