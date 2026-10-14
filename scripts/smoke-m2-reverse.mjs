@@ -314,11 +314,11 @@ try {
     const shimDir = join(temp, "m3-optin-docker");
     mkdirSync(shimDir, { mode: 0o700 });
     const dockerShim = join(shimDir, "docker");
-    writeFileSync(dockerShim, "#!/bin/sh\\n" +
-      'if [ "$1" = "compose" ]; then\\n' +
-      '  case "$*" in *" up -d") printf "one-shot\\\\n" >> "' + deployInvocation + '"; exit 0;; esac\\n' +
-      "fi\\n" +
-      'exec "' + originalDocker + '" "$@"\\n', { mode: 0o700 });
+    writeFileSync(dockerShim, "#!/bin/sh\n" +
+      'if [ "$1" = "compose" ]; then\n' +
+      '  case "$*" in *" up -d") printf "one-shot\\n" >> "' + deployInvocation + '"; exit 0;; esac\n' +
+      "fi\n" +
+      'exec "' + originalDocker + '" "$@"\n', { mode: 0o700 });
     isolatedDeployPath = shimDir + ":" + process.env.PATH;
   }
 
