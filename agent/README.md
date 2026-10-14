@@ -70,7 +70,7 @@ go run ./cmd/navloom-agent -config ./agent-config.json
 - 为现有部署任务启用**只读回执查询**，可在 Agent 配置文件加入 `"deploy_root": "/var/lib/navloom/deployments"`，或通过 `NAVLOOM_AGENT_DEPLOY_ROOT` 指定同一受控目录。目录必须是所在设备自己的绝对路径，权限 0700，由可信部署组件创建；无目录时 Agent 拒绝查询、不会自动执行 Docker。不要把这个根路径指向系统目录、共享数据卷或现有应用目录。
 - `compose_status` 是独立、只读的 WSS 命令；通过双向 TLS 认证的 Server 才能请求指定 `install_task_id` 的回执。Go Agent 只返回 `not_found`、`unknown`、`succeeded` 或 `failed` 和持久退出码，不包含 Compose 环境变量、密码或输出日志。
 - Server 仅管理员能够调用 `POST /api/v1/admin/install/tasks/:id/reconcile` 发起查询。若没有已登录页面维持 Agent WSS，查询会拒绝而**不会**创建定时拨号/后台轮询。查询一个 `prepared` 草稿也会拒绝；这不是执行任务的入口。完整派发、管理员激活、实时脱敏日志与自动生成导航卡片仍待 M3 后续任务完成。
-- **警告**：当前仍不支持从云端运行 `compose_deploy`。本地执行器在测试或经授权的本机集成环境内验证过，不代表可以直接接管真实 NAS 的 Docker 容器。
+- **M3 远程安装已提供受限、默认关闭的显式开关**：Server 必须独立配置 `NAVLOOM_ENABLE_REMOTE_INSTALL=1`，并且 Agent 自身也须设置 `enable_compose_deploy: true`（或私有环境变量 `NAVLOOM_AGENT_ENABLE_COMPOSE_DEPLOY=true`）和 0700 的专用 `deploy_root`。管理员必须先加密保存草稿，再进行第二次明确确认。未配置时不得执行 `compose_deploy`；只有经管理员授权的目标设备可以开启。Compose `up -d` 返回码 0 才标记部署成功，不代表 HTTP 可用。状态为 unknown 时**只能先对账，不自动重试**。自动生成唯一应用实例/导航卡片、日志增量脱敏及真正的跨设备正式验收仍未完成。
 
 ## 旧版 Agent 升级
 
