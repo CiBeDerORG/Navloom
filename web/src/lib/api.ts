@@ -267,3 +267,23 @@ export type PreparedInstallTask = {
 };
 export const getPreparedInstallations = () =>
   request<{ tasks: PreparedInstallTask[] }>("/admin/install/prepared-tasks");
+
+export type InstallTaskDetail = {
+  id: string; agentId: string; templateId: string; templateVersion: string;
+  status: "prepared" | "pending" | "running" | "unknown" | "succeeded" | "failed";
+  exitCode: number | null; createdAt: number; updatedAt: number;
+};
+export const getInstallationTask = (id: string) =>
+  request<{ task: InstallTaskDetail }>("/admin/install/tasks/" + encodeURIComponent(id));
+export const activatePreparedInstallation = (id: string) =>
+  request<{ taskId: string; status: "running"; dispatched: true; message: string }>(
+    "/admin/install/tasks/" + encodeURIComponent(id) + "/activate", {
+      method: "POST", body: payload({ confirmation: "DEPLOY" }),
+    },
+  );
+export const reconcileInstallationTask = (id: string) =>
+  request<{ installTaskId: string; queryTaskId: string; operation: "compose_status"; installationDispatched: false }>(
+    "/admin/install/tasks/" + encodeURIComponent(id) + "/reconcile", {
+      method: "POST", body: payload({}),
+    },
+  );
